@@ -22,15 +22,15 @@ test("renderiza o painel financeiro principal", async () => {
   assert.match(html, /<html lang="pt-BR">/i);
   assert.match(html, /<title>NuBank — sua vida financeira<\/title>/i);
   assert.match(html, /Saldo em conta/);
-  assert.match(html, /Cartão de crédito/);
-  assert.match(html, /Descubra mais/);
-  assert.match(html, /aria-label="Navegação principal"/);
+  assert.match(html, /Área Pix e Transferir/);
+  assert.match(html, /Editar/);
+  assert.match(html, /Demonstração visual/);
 });
 
 test("entrega metadados sociais e controles acessíveis", async () => {
   const html = await (await render()).text();
   assert.match(html, /property="og:image" content="\/og.png"/);
   assert.match(html, /name="twitter:card" content="summary_large_image"/);
-  assert.match(html, /aria-label="Ocultar valores"/);
+  assert.match(html, /Perfil de João Silva/);
   assert.match(html, /aria-label="Atalhos"/);
 });
