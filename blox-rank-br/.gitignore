@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-cli/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+whatsapp-gateway/**/sessions/
+**/creds.json

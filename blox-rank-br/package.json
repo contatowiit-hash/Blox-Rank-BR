@@ -1,0 +1,47 @@
+{
+  "name": "blox-rank-br",
+  "version": "1.0.0",
+  "private": true,
+  "description": "API e bot Discord para inscrições e torneios do Blox Rank BR",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0 <23"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.cli.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate": "tsx src/database/migrate.ts",
+    "register:commands": "tsx scripts/register-commands.ts",
+    "register:commands:prod": "node dist-cli/scripts/register-commands.js",
+    "tournament:create": "tsx scripts/manage-tournament.ts create",
+    "tournament:close": "tsx scripts/manage-tournament.ts close",
+    "tournament:reopen": "tsx scripts/manage-tournament.ts reopen",
+    "tournament:create:prod": "node dist-cli/scripts/manage-tournament.js create",
+    "tournament:close:prod": "node dist-cli/scripts/manage-tournament.js close",
+    "tournament:reopen:prod": "node dist-cli/scripts/manage-tournament.js reopen"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@fastify/rate-limit": "^11.1.0",
+    "discord.js": "^14.26.5",
+    "dotenv": "^17.2.3",
+    "fastify": "^5.10.0",
+    "pg": "^8.22.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.4",
+    "@types/node": "^22.19.19",
+    "@types/pg": "^8.20.0",
+    "tsx": "^4.23.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "undici": "6.27.0"
+  }
+}
