@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "./app.js";
 import { createApplicationContext } from "./application-context.js";
 import { startDiscordBot, type DiscordBotRuntime } from "./bot.js";
-import { loadAppEnv } from "./config/env.js";
+import { EnvironmentConfigurationError, loadAppEnv } from "./config/env.js";
 import { closeDatabasePool, createDatabasePool } from "./database/index.js";
 import { checkDatabaseHealth } from "./routes/health.js";
 import { sanitizeErrorName } from "./utils/sanitize.js";
@@ -116,11 +116,16 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
+  const configurationFields =
+    error instanceof EnvironmentConfigurationError
+      ? error.message.replace(/^.*?:\s*/, "")
+      : undefined;
   process.stderr.write(
     `${JSON.stringify({
       level: "fatal",
       event: "application.fatal",
       errorName: sanitizeErrorName(error),
+      ...(configurationFields === undefined ? {} : { configurationFields }),
     })}\n`,
   );
   process.exitCode = 1;

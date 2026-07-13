@@ -181,6 +181,10 @@ export type AppEnv = z.infer<typeof appEnvSchema>;
 export type CommandRegistrationEnv = z.infer<typeof commandRegistrationEnvSchema>;
 export type DatabaseMigrationEnv = z.infer<typeof databaseMigrationEnvSchema>;
 
+export class EnvironmentConfigurationError extends Error {
+  override readonly name = "EnvironmentConfigurationError";
+}
+
 function parseEnvironment<T>(schema: z.ZodType<T>, source: NodeJS.ProcessEnv): T {
   const result = schema.safeParse(source);
   if (result.success) {
@@ -188,7 +192,9 @@ function parseEnvironment<T>(schema: z.ZodType<T>, source: NodeJS.ProcessEnv): T
   }
 
   const fields = [...new Set(result.error.issues.map((issue) => issue.path.join(".")).filter(Boolean))];
-  throw new Error(`Configuração inválida. Revise as variáveis: ${fields.join(", ")}`);
+  throw new EnvironmentConfigurationError(
+    `Configuração inválida. Revise as variáveis: ${fields.join(", ")}`,
+  );
 }
 
 export function loadAppEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
