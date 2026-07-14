@@ -134,7 +134,7 @@ npm audit
 
 1. Configure as cinco variáveis privadas (`API_BASE_URL`, `API_ADMIN_TOKEN`, `ADMIN_PASSWORD_HASH`, `ADMIN_DISCORD_ID` e `SESSION_SECRET`).
 2. Abra `/admin/login`.
-3. Informe a senha e o Discord ID numérico do responsável.
+3. Informe somente a senha; o Discord ID usado na auditoria vem de `ADMIN_DISCORD_ID` no servidor.
 4. O servidor valida a senha e cria uma sessão assinada de 8 horas em cookie `HttpOnly`, `SameSite=Strict` e `Secure` em produção.
 5. Todas as mutações usam o Discord ID fixado na sessão para auditoria no backend.
 
