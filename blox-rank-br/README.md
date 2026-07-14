@@ -258,10 +258,11 @@ Assim, os maiores seeds ficam separados e os seeds 1 e 2 só podem se encontrar 
 ## Comandos do Discord
 
 - `/inscricoes` — lista até 100 pendentes em mensagens privadas; somente staff.
-- `/aprovar inscricao:<id>` — aprova e agenda o cargo; repetir em uma inscrição já aprovada solicita nova tentativa segura; somente staff; resposta privada.
-- `/recusar inscricao:<id> motivo:<texto>` — recusa; somente staff; resposta privada.
-- `/resultado partida:<id> placar_jogador_1:<n> placar_jogador_2:<n>` — registra e avança; somente staff; resposta privada.
-- `/chaveamento` — publica a chave atual.
+- `/aprovar` e `/recusar` — oferecem autocomplete por nick Roblox/Discord; os botões da mensagem de nova inscrição executam as mesmas ações e a recusa usa modal.
+- `/resultado` — oferece somente partidas pendentes/jogáveis no autocomplete, registra o placar e avança o vencedor; somente staff; resposta privada.
+- `/torneio` — resume status, limite e totais de inscrições por situação.
+- `/abrir-inscricoes`, `/fechar-inscricoes` e `/gerar-chaveamento` — usam o torneio atual quando o UUID é omitido; somente staff.
+- `/participantes` e `/chaveamento` — publicam os dados do torneio atual ou do UUID opcional.
 - `/ping` — mostra latência do bot e disponibilidade do sistema.
 
 A autorização usa exclusivamente `DISCORD_STAFF_ROLE_ID`. Nome do cargo, nome do usuário e permissão genérica de administrador não substituem esse ID.

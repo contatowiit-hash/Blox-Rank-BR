@@ -1,10 +1,14 @@
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   EmbedBuilder,
+  type MessageActionRowComponentBuilder,
   type APIEmbedField,
   type ColorResolvable,
   type MessageMentionOptions,
 } from "discord.js";
-import type { BracketMatch, Registration } from "../types/domain.js";
+import type { BracketMatch, Registration, Tournament } from "../types/domain.js";
 import {
   escapeDiscordMarkdown,
   sanitizeText,
@@ -32,6 +36,19 @@ export const NO_DISCORD_MENTIONS = {
   parse: [],
   repliedUser: false,
 } satisfies MessageMentionOptions;
+
+export const REGISTRATION_ACTION_PREFIX = "registration";
+
+export function createRegistrationActionRow(registrationId: string) {
+  return new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(`${REGISTRATION_ACTION_PREFIX}:approve:${registrationId}`)
+      .setLabel("Aprovar").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`${REGISTRATION_ACTION_PREFIX}:reject:${registrationId}`)
+      .setLabel("Recusar").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`${REGISTRATION_ACTION_PREFIX}:details:${registrationId}`)
+      .setLabel("Ver detalhes").setStyle(ButtonStyle.Secondary),
+  );
+}
 
 export type RegistrationEmbedData = Pick<
   Registration,
@@ -181,6 +198,41 @@ export function createNewRegistrationEmbed(registration: RegistrationEmbedData):
     });
   }
   return embed;
+}
+
+export function createRegistrationDetailsEmbed(registration: RegistrationEmbedData): EmbedBuilder {
+  return createNewRegistrationEmbed(registration).setTitle("Detalhes da inscrição");
+}
+
+export function createTournamentSummaryEmbed(
+  tournament: Tournament,
+  counts: { total: number; approved: number; pending: number; rejected: number },
+): EmbedBuilder {
+  const statuses: Record<Tournament["status"], string> = {
+    draft: "Em preparação", registrations_open: "Inscrições abertas",
+    registrations_closed: "Inscrições encerradas", active: "Em andamento", finished: "Finalizado",
+  };
+  return createBaseEmbed(tournament.name, DISCORD_THEME.darkBlue).addFields(
+    { name: "UUID", value: inlineCode(tournament.id), inline: false },
+    { name: "Status", value: statuses[tournament.status], inline: true },
+    { name: "Limite", value: formatNumber(tournament.maxPlayers), inline: true },
+    { name: "Inscrições", value: formatNumber(counts.total), inline: true },
+    { name: "Aprovados", value: formatNumber(counts.approved), inline: true },
+    { name: "Pendentes", value: formatNumber(counts.pending), inline: true },
+    { name: "Recusados", value: formatNumber(counts.rejected), inline: true },
+  );
+}
+
+export function createParticipantsEmbeds(name: string, registrations: readonly RegistrationEmbedData[]): EmbedBuilder[] {
+  if (registrations.length === 0) return [createFeedbackEmbed(name, "Ainda não há participantes aprovados.")];
+  return chunk(registrations, REGISTRATIONS_PER_EMBED).slice(0, EMBEDS_PER_MESSAGE_MAX).map((page, index) =>
+    createBaseEmbed(`${name} — Participantes${registrations.length > REGISTRATIONS_PER_EMBED ? ` ${index + 1}` : ""}`,
+      index % 2 === 0 ? DISCORD_THEME.darkBlue : DISCORD_THEME.purple).addFields(page.map((item, itemIndex) => ({
+        name: `${index * REGISTRATIONS_PER_EMBED + itemIndex + 1}. ${safeText(item.robloxUsername, 200)}`,
+        value: `Discord: ${safeText(item.discordUsername, 100)}\nBounty/Honor: ${formatNumber(item.bountyHonor)}\nPlataforma: ${formatPlatform(item.platform)}`,
+        inline: true,
+      }))),
+  );
 }
 
 function pendingRegistrationField(

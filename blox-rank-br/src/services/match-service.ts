@@ -4,6 +4,7 @@ import {
   AuditLogRepository,
   MatchRepository,
   OutboxRepository,
+  RegistrationRepository,
   TournamentRepository,
 } from "../repositories/index.js";
 import type { Match } from "../types/domain.js";
@@ -19,6 +20,7 @@ import { DISCORD_OUTBOX_EVENTS } from "./discord-events.js";
 interface MatchServiceOptions {
   pool: Pool;
   matches: MatchRepository;
+  registrations: RegistrationRepository;
   tournaments: TournamentRepository;
   auditLogs: AuditLogRepository;
   outbox: OutboxRepository;
@@ -94,6 +96,10 @@ export class MatchService {
       }
 
       const nextPlacement = getNextMatchPlacement(match.round, match.bracketPosition);
+      const winnerRegistration = await this.options.registrations.getById(winner, client);
+      if (winnerRegistration === null) {
+        throw new ConflictError("O vencedor não possui uma inscrição válida.");
+      }
       if (nextPlacement === null) {
         const lockedTournament = await this.options.tournaments.getByIdForUpdate(
           match.tournamentId,
@@ -162,6 +168,8 @@ export class MatchService {
             bracketPosition: completed.bracketPosition,
             playerOneScore: input.player_one_score,
             playerTwoScore: input.player_two_score,
+            winnerRobloxUsername: winnerRegistration.robloxUsername,
+            champion: nextPlacement === null,
           },
         },
         client,

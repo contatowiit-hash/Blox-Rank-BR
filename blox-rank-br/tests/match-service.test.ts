@@ -4,6 +4,7 @@ import type {
   AuditLogRepository,
   MatchRepository,
   OutboxRepository,
+  RegistrationRepository,
   TournamentRepository,
 } from "../src/repositories/index.js";
 import { MatchService } from "../src/services/match-service.js";
@@ -12,6 +13,7 @@ import type {
   CreateAuditLogInput,
   EnqueueDiscordOutboxInput,
   Match,
+  Registration,
   Tournament,
   TournamentPlayer,
 } from "../src/types/domain.js";
@@ -147,10 +149,20 @@ function createHarness(lockedMatch: Match) {
   const outbox = {
     enqueue: vi.fn(async (_input: EnqueueDiscordOutboxInput, _client: PoolClient) => ({})),
   };
+  const registrations = {
+    getById: vi.fn(async (id: string): Promise<Registration> => ({
+      id, tournamentId: TOURNAMENT_ID, robloxUsername: id === PLAYER_ONE_ID ? "JogadorUm" : "JogadorDois",
+      discordUserId: "123456789012345678", discordUsername: "jogador", level: 2550,
+      bountyHonor: 1_000_000, faction: "pirate", platform: "pc", mainFruit: "Portal",
+      status: "approved", rejectionReason: null, approvedByDiscordId: ACTOR_DISCORD_ID,
+      createdAt: FIXED_DATE, updatedAt: FIXED_DATE,
+    })),
+  };
 
   const service = new MatchService({
     pool: transaction.pool,
     matches: matches as unknown as MatchRepository,
+    registrations: registrations as unknown as RegistrationRepository,
     tournaments: tournaments as unknown as TournamentRepository,
     auditLogs: auditLogs as unknown as AuditLogRepository,
     outbox: outbox as unknown as OutboxRepository,

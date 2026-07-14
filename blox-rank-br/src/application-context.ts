@@ -48,6 +48,7 @@ export function createApplicationContext(pool: Pool, env: AppEnv) {
     matches: new MatchService({
       pool,
       matches: repositories.matches,
+      registrations: repositories.registrations,
       tournaments: repositories.tournaments,
       auditLogs: repositories.auditLogs,
       outbox: repositories.outbox,

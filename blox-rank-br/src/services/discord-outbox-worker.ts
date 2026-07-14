@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { Client, EmbedBuilder } from "discord.js";
+import type { ActionRowBuilder, Client, EmbedBuilder, MessageActionRowComponentBuilder } from "discord.js";
 import { z } from "zod";
 import type { ApplicationContext } from "../application-context.js";
 import {
   createAdministrativeActionEmbed,
   createNewRegistrationEmbed,
+  createRegistrationActionRow,
   NO_DISCORD_MENTIONS,
 } from "../commands/embeds.js";
 import type { AppEnv } from "../config/env.js";
@@ -91,6 +92,8 @@ const matchResultRecordedActionSchema = z
     bracketPosition: z.number().int().min(1).max(8),
     playerOneScore: z.number().int().min(0).max(100),
     playerTwoScore: z.number().int().min(0).max(100),
+    winnerRobloxUsername: robloxUsernameSchema,
+    champion: z.boolean(),
   })
   .strict();
 
@@ -248,6 +251,7 @@ function administrativeActionEmbed(payload: AdministrativeActionPayload): EmbedB
             inline: true,
           },
           { name: "Torneio", value: payload.tournamentId },
+          { name: payload.champion ? "Campeão" : "Avançou", value: payload.winnerRobloxUsername },
         ],
       });
     case "tournament.created":
@@ -456,6 +460,7 @@ export class DiscordOutboxWorker {
             mainFruit: parsed.payload.mainFruit,
           }),
           message.id,
+          createRegistrationActionRow(parsed.payload.registrationId),
         );
         return;
       }
@@ -494,6 +499,7 @@ export class DiscordOutboxWorker {
     channelId: string,
     embed: EmbedBuilder,
     outboxId: string,
+    components?: ActionRowBuilder<MessageActionRowComponentBuilder>,
   ): Promise<void> {
     const channel = await this.options.client.channels.fetch(channelId);
     if (channel === null || channel.id !== channelId || channel.isDMBased()) {
@@ -505,6 +511,7 @@ export class DiscordOutboxWorker {
 
     await channel.send({
       embeds: [embed],
+      ...(components === undefined ? {} : { components: [components] }),
       allowedMentions: NO_DISCORD_MENTIONS,
       nonce: messageNonce(outboxId),
       enforceNonce: true,

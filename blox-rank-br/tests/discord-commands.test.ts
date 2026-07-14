@@ -1,17 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { PermissionFlagsBits } from "discord.js";
 import { commandDefinitions, DISCORD_COMMAND_NAMES } from "../src/commands/definitions.js";
-import { createNewRegistrationEmbed, createPendingRegistrationEmbeds } from "../src/commands/embeds.js";
+import { createNewRegistrationEmbed, createPendingRegistrationEmbeds, createRegistrationActionRow } from "../src/commands/embeds.js";
 import { hasUnsafeParticipantPermissions } from "../src/utils/discord-permissions.js";
 
 describe("comandos e embeds do Discord", () => {
-  it("serializa os seis guild commands e todas as opções obrigatórias", () => {
+  it("serializa os guild commands e opções de busca", () => {
     const commands = commandDefinitions.map((definition) => definition.toJSON());
     expect(commands.map((command) => command.name)).toEqual([
       DISCORD_COMMAND_NAMES.registrations,
       DISCORD_COMMAND_NAMES.approve,
       DISCORD_COMMAND_NAMES.reject,
       DISCORD_COMMAND_NAMES.result,
+      DISCORD_COMMAND_NAMES.tournament,
+      DISCORD_COMMAND_NAMES.openRegistrations,
+      DISCORD_COMMAND_NAMES.closeRegistrations,
+      DISCORD_COMMAND_NAMES.generateBracket,
+      DISCORD_COMMAND_NAMES.participants,
       DISCORD_COMMAND_NAMES.bracket,
       DISCORD_COMMAND_NAMES.ping,
     ]);
@@ -19,15 +24,24 @@ describe("comandos e embeds do Discord", () => {
     const approve = commands.find((command) => command.name === DISCORD_COMMAND_NAMES.approve);
     const reject = commands.find((command) => command.name === DISCORD_COMMAND_NAMES.reject);
     const result = commands.find((command) => command.name === DISCORD_COMMAND_NAMES.result);
-    expect(approve?.options).toMatchObject([{ name: "inscricao", required: true }]);
+    expect(approve?.options).toMatchObject([{ name: "inscricao", required: true, autocomplete: true }]);
     expect(reject?.options).toMatchObject([
-      { name: "inscricao", required: true },
+      { name: "inscricao", required: true, autocomplete: true },
       { name: "motivo", required: true, min_length: 3, max_length: 500 },
     ]);
     expect(result?.options).toMatchObject([
-      { name: "partida", required: true },
+      { name: "partida", required: true, autocomplete: true },
       { name: "placar_jogador_1", required: true, min_value: 0, max_value: 100 },
       { name: "placar_jogador_2", required: true, min_value: 0, max_value: 100 },
+    ]);
+  });
+
+  it("cria botões com UUID interno sem colocar dados do jogador no custom id", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const components = createRegistrationActionRow(id).toJSON().components;
+    expect(components).toHaveLength(3);
+    expect(components.map((component) => "custom_id" in component ? component.custom_id : "")).toEqual([
+      `registration:approve:${id}`, `registration:reject:${id}`, `registration:details:${id}`,
     ]);
   });
 

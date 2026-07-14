@@ -1,284 +1,61 @@
-"use client";
+import type { Metadata } from "next";
+import Link from "next/link";
+import { ArrowRight, CheckCircle2, Crosshair, ShieldCheck, Swords, Trophy } from "lucide-react";
+import { PageHero } from "./components/PageHero";
+import { DiscordButton } from "./components/DiscordButton";
+import { ParticipantsGrid } from "./components/ParticipantsGrid";
+import { PublicShell } from "./components/PublicShell";
+import { TournamentOverview } from "./components/TournamentOverview";
 
-import { useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
-import type { LucideIcon } from "lucide-react";
-import {
-  ArrowDown,
-  ArrowUpRight,
-  Barcode,
-  Blocks,
-  CalendarDays,
-  CircleDollarSign,
-  CircleHelp,
-  Copy,
-  HandCoins,
-  KeyRound,
-  Pencil,
-  RefreshCw,
-  ScanLine,
-  ShoppingBag,
-  SlidersHorizontal,
-  Smartphone,
-  X,
-} from "lucide-react";
+export const metadata: Metadata = { alternates: { canonical: "/" } };
 
-type Profile = {
-  name: string;
-  balance: string;
-};
-
-type Shortcut = {
-  label: string;
-  icon: LucideIcon;
-  badge?: string;
-  opensPix?: boolean;
-};
-
-const STORAGE_KEY = "painel-financeiro-perfil-v1";
-const DEFAULT_PROFILE: Profile = { name: "João Silva", balance: "10.000,00" };
-
-const shortcuts: Shortcut[] = [
-  { label: "Área Pix e Transferir", icon: Blocks, opensPix: true },
-  { label: "Pagar", icon: Barcode },
-  { label: "Pegar emprestado", icon: HandCoins, badge: "FGTS" },
-  { label: "Recarga de celular", icon: Smartphone },
-  { label: "Caixinha e Investir", icon: ShoppingBag },
-];
-
-const pixActions: Array<{ label: string; icon: LucideIcon }> = [
-  { label: "Transferir", icon: ArrowUpRight },
-  { label: "Programar", icon: CalendarDays },
-  { label: "Ler QR code", icon: ScanLine },
-  { label: "Pix Copia e Cola", icon: Copy },
-  { label: "Cobrar", icon: CircleDollarSign },
-  { label: "Depositar", icon: ArrowDown },
-];
-
-const preferences: Array<{ label: string; icon: LucideIcon }> = [
-  { label: "Pix automático", icon: RefreshCw },
-  { label: "Registrar ou trazer chaves", icon: KeyRound },
-  { label: "Meus limites", icon: SlidersHorizontal },
-];
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "JS";
-  return `${parts[0][0]}${parts.length > 1 ? parts.at(-1)?.[0] ?? "" : ""}`.toUpperCase();
-}
-
-function displayBalance(balance: string) {
-  const value = balance.trim();
-  return value.toLowerCase().startsWith("r$") ? value : `R$ ${value}`;
-}
-
-export default function Home() {
-  const [view, setView] = useState<"home" | "pix">("home");
-  const [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE);
-  const [draft, setDraft] = useState<Profile>(DEFAULT_PROFILE);
-  const [editing, setEditing] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let restoreTimer: number | undefined;
-    try {
-      const saved = window.localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved) as Partial<Profile>;
-        if (typeof parsed.name === "string" && typeof parsed.balance === "string") {
-          const next = { name: parsed.name.slice(0, 40), balance: parsed.balance.slice(0, 24) };
-          restoreTimer = window.setTimeout(() => {
-            setProfile(next);
-            setDraft(next);
-          }, 0);
-        }
-      }
-    } catch {
-      window.localStorage.removeItem(STORAGE_KEY);
-    }
-
-    const syncView = () => setView(window.location.hash === "#pix" ? "pix" : "home");
-    syncView();
-    window.addEventListener("popstate", syncView);
-    return () => {
-      window.removeEventListener("popstate", syncView);
-      if (restoreTimer !== undefined) window.clearTimeout(restoreTimer);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!editing) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setEditing(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [editing]);
-
-  const avatar = useMemo(() => initials(profile.name), [profile.name]);
-  const greetingName = useMemo(() => profile.name.trim().split(/\s+/)[0] || "Cliente", [profile.name]);
-
-  function openPix() {
-    window.history.pushState({}, "", "#pix");
-    setView("pix");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  function closePix() {
-    window.history.pushState({}, "", window.location.pathname);
-    setView("home");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  function openEditor() {
-    setDraft(profile);
-    setError("");
-    setEditing(true);
-  }
-
-  function saveProfile(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const next = { name: draft.name.trim(), balance: draft.balance.trim() };
-    if (!next.name || !next.balance) {
-      setError("Preencha o nome e o saldo.");
-      return;
-    }
-    const safeProfile = { name: next.name.slice(0, 40), balance: next.balance.slice(0, 24) };
-    setProfile(safeProfile);
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(safeProfile));
-    setEditing(false);
-  }
-
-  if (view === "pix") {
-    return (
-      <main className="pix-page">
-        <header className="pix-topbar">
-          <button className="icon-button" type="button" aria-label="Voltar para o início" onClick={closePix}>
-            <X aria-hidden="true" />
-          </button>
-          <button className="icon-button muted-button" type="button" aria-label="Ajuda">
-            <CircleHelp aria-hidden="true" />
-          </button>
-        </header>
-
-        <section className="pix-intro">
-          <h1>Área Pix</h1>
-          <p>Envie e receba pagamentos a qualquer hora e dia da semana, sem pagar nada por isso.</p>
-        </section>
-
-        <section className="pix-actions" aria-label="Opções Pix">
-          {pixActions.map(({ label, icon: Icon }) => (
-            <button className="pix-action inert-button" type="button" key={label} aria-label={label}>
-              <span><Icon aria-hidden="true" /></span>
-              <strong>{label}</strong>
-            </button>
-          ))}
-        </section>
-
-        <section className="pix-list" aria-labelledby="preferences-title">
-          <h2 id="preferences-title">Preferências</h2>
-          {preferences.map(({ label, icon: Icon }) => (
-            <button className="pix-row inert-button" type="button" key={label}>
-              <Icon aria-hidden="true" />
-              <strong>{label}</strong>
-              <span aria-hidden="true">›</span>
-            </button>
-          ))}
-        </section>
-
-        <section className="pix-list support-list" aria-labelledby="support-title">
-          <h2 id="support-title">Suporte</h2>
-          <button className="pix-row inert-button" type="button">
-            <CircleHelp aria-hidden="true" />
-            <strong>Preciso de ajuda</strong>
-            <span aria-hidden="true">›</span>
-          </button>
-        </section>
-      </main>
-    );
-  }
-
+export default function HomePage() {
   return (
-    <main className="home-page">
-      <header className="home-header">
-        <div className="avatar" aria-label={`Perfil de ${profile.name}`}>{avatar}</div>
-        <button className="edit-profile" type="button" onClick={openEditor}>
-          <Pencil aria-hidden="true" />
-          Editar
-        </button>
-        <h1>Olá, {greetingName}</h1>
-      </header>
+    <PublicShell>
+      <PageHero
+        eyebrow="Competitivo brasileiro // Blox Fruits"
+        title="PROVE SEU NÍVEL NO PVP"
+        description="O Blox Rank BR organiza torneios comunitários de Blox Fruits em formato mata-mata, com partidas acompanhadas, chaveamento organizado e divulgação dos melhores confrontos."
+        actions={<><Link className="button button-primary" href="/inscricao">Participar do torneio <ArrowRight aria-hidden="true" /></Link><Link className="button button-secondary" href="/chaveamento">Ver chaveamento</Link><DiscordButton cta /></>}
+      />
 
-      <section className="home-content" aria-label="Resumo da conta">
-        <div className="account-balance">
-          <h2>Saldo em conta</h2>
-          <strong>{displayBalance(profile.balance)}</strong>
-        </div>
-
-        <button className="link-account inert-button" type="button">
-          <span aria-hidden="true">+</span>
-          Vincular conta
-        </button>
-
-        <section className="shortcuts" aria-label="Atalhos">
-          {shortcuts.map(({ label, icon: Icon, badge, opensPix }) => (
-            <button
-              className={opensPix ? "shortcut-button" : "shortcut-button inert-button"}
-              type="button"
-              key={label}
-              onClick={opensPix ? openPix : undefined}
-            >
-              <span className="shortcut-icon">
-                <Icon aria-hidden="true" />
-                {badge && <small>{badge}</small>}
-              </span>
-              <strong>{label}</strong>
-            </button>
-          ))}
-        </section>
-
-        <p className="demo-note">Demonstração visual — nenhum botão realiza operações financeiras.</p>
+      <section className="signal-strip" aria-label="Destaques do torneio">
+        <div><strong>16</strong><span>participantes por chave</span></div>
+        <div><Swords aria-hidden="true" /><span>mata-mata direto</span></div>
+        <div><ShieldCheck aria-hidden="true" /><span>resultados pela equipe</span></div>
       </section>
 
-      {editing && (
-        <div className="editor-backdrop" role="presentation" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) setEditing(false);
-        }}>
-          <section className="editor-card" role="dialog" aria-modal="true" aria-labelledby="editor-title">
-            <button className="editor-close" type="button" aria-label="Fechar edição" onClick={() => setEditing(false)}>
-              <X aria-hidden="true" />
-            </button>
-            <h2 id="editor-title">Editar tela inicial</h2>
-            <p>Essas mudanças ficam salvas somente neste navegador.</p>
-            <form onSubmit={saveProfile}>
-              <label>
-                Seu nome
-                <input
-                  autoFocus
-                  maxLength={40}
-                  value={draft.name}
-                  onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-                  placeholder="Ex.: João Silva"
-                />
-              </label>
-              <label>
-                Saldo exibido
-                <span className="balance-input">
-                  <span>R$</span>
-                  <input
-                    maxLength={24}
-                    value={draft.balance.replace(/^R\$\s*/i, "")}
-                    onChange={(event) => setDraft((current) => ({ ...current, balance: event.target.value }))}
-                    placeholder="Ex.: 2,00"
-                  />
-                </span>
-              </label>
-              {error && <p className="form-error" role="alert">{error}</p>}
-              <button className="save-button" type="submit">Salvar mudanças</button>
-            </form>
-          </section>
+      <section className="section edition-section">
+        <div className="section-heading"><div><span className="eyebrow">1ª edição</span><h2>Informações da disputa</h2></div></div>
+        <div className="edition-grid">
+          {["16 jogadores", "Mata-mata", "Partidas X1", "Melhor de 3", "Final melhor de 5", "Inscrição gratuita"].map((item, index) => <div key={item}><span>{String(index + 1).padStart(2, "0")}</span><strong>{item}</strong></div>)}
         </div>
-      )}
-    </main>
+      </section>
+
+      <section className="section section-live">
+        <div className="section-heading"><div><span className="eyebrow">Agora no BRB</span><h2>Torneio em destaque</h2></div><Link className="text-link" href="/torneio">Página do torneio <ArrowRight aria-hidden="true" /></Link></div>
+        <TournamentOverview compact />
+      </section>
+
+      <section className="section section-angle">
+        <div className="section-heading"><div><span className="eyebrow">Da inscrição à final</span><h2>Competir ficou simples.</h2></div></div>
+        <div className="feature-grid">
+          <article><span>01</span><Crosshair aria-hidden="true" /><h3>Envie sua inscrição</h3><p>Informe seu jogador e seus dados do Discord em poucos passos.</p></article>
+          <article><span>02</span><CheckCircle2 aria-hidden="true" /><h3>Aguarde a análise</h3><p>A equipe confere as informações e confirma quem entra na chave.</p></article>
+          <article><span>03</span><Trophy aria-hidden="true" /><h3>Dispute cada rodada</h3><p>Partidas e resultados aparecem no chaveamento público.</p></article>
+        </div>
+        <Link className="text-link section-link" href="/como-funciona">Entenda o passo a passo <ArrowRight aria-hidden="true" /></Link>
+      </section>
+
+      <section className="section">
+        <div className="section-heading"><div><span className="eyebrow">Quem já está na arena</span><h2>Participantes confirmados</h2></div><Link className="text-link" href="/participantes">Ver todos <ArrowRight aria-hidden="true" /></Link></div>
+        <ParticipantsGrid limit={4} />
+      </section>
+
+      <section className="final-cta">
+        <div><span className="eyebrow">Sua próxima batalha</span><h2>Pronto para colocar seu rank à prova?</h2><p>Faça sua inscrição e deixe a equipe cuidar do resto.</p></div>
+        <Link className="button button-primary" href="/inscricao">Entrar na disputa <ArrowRight aria-hidden="true" /></Link>
+      </section>
+    </PublicShell>
   );
 }

@@ -39,10 +39,75 @@ export class TournamentService {
     return tournament;
   }
 
+  public async getById(id: string): Promise<Tournament> {
+    const tournament = await this.options.tournaments.getById(id);
+    if (tournament === null) {
+      throw new NotFoundError("Torneio não encontrado.");
+    }
+    return tournament;
+  }
+
+  public async resolve(id?: string): Promise<Tournament> {
+    return id === undefined ? this.getCurrent() : this.getById(id);
+  }
+
   public async getCurrentBracket(): Promise<BracketView> {
     const tournament = await this.getCurrent();
     const matches = await this.options.matches.listBracket(tournament.id);
     return { tournament, matches };
+  }
+
+  public async getBracket(id?: string): Promise<BracketView> {
+    const tournament = await this.resolve(id);
+    return { tournament, matches: await this.options.matches.listBracket(tournament.id) };
+  }
+
+  public async setRegistrationsOpen(id: string, actorDiscordId: string): Promise<Tournament> {
+    return withTransaction(this.options.pool, async (client) => {
+      const tournament = await this.options.tournaments.getByIdForUpdate(id, client);
+      if (tournament === null) throw new NotFoundError("Torneio não encontrado.");
+      if (tournament.status === "registrations_open") return tournament;
+      if (tournament.status !== "registrations_closed") {
+        throw new ConflictError("Somente um torneio com inscrições encerradas pode ser reaberto.");
+      }
+      const updated = await this.options.tournaments.updateStatus(id, "registrations_open", client);
+      if (updated === null) throw new ConflictError("Não foi possível abrir as inscrições.");
+      const audit = await this.options.auditLogs.create({
+        action: "tournament.registrations_reopened", actorDiscordId, targetId: id,
+        metadata: { previousStatus: tournament.status, status: updated.status },
+      }, client);
+      await this.options.outbox.enqueue({
+        eventType: DISCORD_OUTBOX_EVENTS.administrativeAction,
+        channelId: this.options.logsChannelId,
+        deduplicationKey: `tournament.registrations_reopened:${id}:${audit.id}`,
+        payload: { action: "tournament.registrations_reopened", actorDiscordId, targetId: id, tournamentName: updated.name },
+      }, client);
+      return updated;
+    });
+  }
+
+  public async setRegistrationsClosed(id: string, actorDiscordId: string): Promise<Tournament> {
+    return withTransaction(this.options.pool, async (client) => {
+      const tournament = await this.options.tournaments.getByIdForUpdate(id, client);
+      if (tournament === null) throw new NotFoundError("Torneio não encontrado.");
+      if (tournament.status === "registrations_closed") return tournament;
+      if (tournament.status !== "registrations_open") {
+        throw new ConflictError("Somente um torneio com inscrições abertas pode ser encerrado.");
+      }
+      const updated = await this.options.tournaments.updateStatus(id, "registrations_closed", client);
+      if (updated === null) throw new ConflictError("Não foi possível encerrar as inscrições.");
+      const audit = await this.options.auditLogs.create({
+        action: "tournament.registrations_closed", actorDiscordId, targetId: id,
+        metadata: { previousStatus: tournament.status, status: updated.status },
+      }, client);
+      await this.options.outbox.enqueue({
+        eventType: DISCORD_OUTBOX_EVENTS.administrativeAction,
+        channelId: this.options.logsChannelId,
+        deduplicationKey: `tournament.registrations_closed:${id}:${audit.id}`,
+        payload: { action: "tournament.registrations_closed", actorDiscordId, targetId: id, tournamentName: updated.name },
+      }, client);
+      return updated;
+    });
   }
 
   public async generateBracket(id: string, actorDiscordId: string): Promise<BracketView> {
