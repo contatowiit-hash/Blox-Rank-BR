@@ -63,6 +63,15 @@ const registrationApprovedActionSchema = z
   })
   .strict();
 
+const registrationCreatedByStaffActionSchema = z
+  .object({
+    action: z.literal("registration.created_by_staff"),
+    actorDiscordId: discordIdSchema,
+    targetId: uuidSchema,
+    robloxUsername: robloxUsernameSchema,
+  })
+  .strict();
+
 const registrationRejectedActionSchema = z
   .object({
     action: z.literal("registration.rejected"),
@@ -132,6 +141,7 @@ const tournamentBracketGeneratedActionSchema = z
   .strict();
 
 const administrativeActionPayloadSchema = z.discriminatedUnion("action", [
+  registrationCreatedByStaffActionSchema,
   registrationApprovedActionSchema,
   registrationRejectedActionSchema,
   participantRoleRetryActionSchema,
@@ -213,6 +223,13 @@ function messageNonce(outboxId: string): string {
 
 function administrativeActionEmbed(payload: AdministrativeActionPayload): EmbedBuilder {
   switch (payload.action) {
+    case "registration.created_by_staff":
+      return createAdministrativeActionEmbed({
+        title: "Inscrição criada pela equipe",
+        actorDiscordId: payload.actorDiscordId,
+        targetId: payload.targetId,
+        details: [{ name: "Jogador", value: payload.robloxUsername }],
+      });
     case "registration.approved":
       return createAdministrativeActionEmbed({
         title: "Inscrição aprovada",

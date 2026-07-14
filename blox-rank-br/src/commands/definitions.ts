@@ -7,6 +7,7 @@ const MATCH_SCORE_MAX = 100;
 
 export const DISCORD_COMMAND_NAMES = {
   registrations: "inscricoes",
+  register: "inscrever",
   approve: "aprovar",
   reject: "recusar",
   result: "resultado",
@@ -26,6 +27,20 @@ export const commandDefinitions = Object.freeze([
   new SlashCommandBuilder()
     .setName(DISCORD_COMMAND_NAMES.registrations)
     .setDescription("Mostra quem ainda aguarda análise da equipe."),
+  new SlashCommandBuilder()
+    .setName(DISCORD_COMMAND_NAMES.register)
+    .setDescription("Cria a inscrição de um membro no torneio atual.")
+    .addUserOption((option) => option.setName("jogador")
+      .setDescription("Marque o membro que será inscrito").setRequired(true))
+    .addStringOption((option) => option.setName("faccao").setDescription("Facção do jogador")
+      .addChoices({ name: "Pirata", value: "pirate" }, { name: "Marinheiro", value: "marine" })
+      .setRequired(true))
+    .addStringOption((option) => option.setName("plataforma").setDescription("Onde o jogador joga")
+      .addChoices(
+        { name: "Computador", value: "pc" },
+        { name: "Celular", value: "mobile" },
+        { name: "Console", value: "console" },
+      ).setRequired(true)),
   new SlashCommandBuilder()
     .setName(DISCORD_COMMAND_NAMES.approve)
     .setDescription("Aprova um jogador e entrega o cargo de participante.")

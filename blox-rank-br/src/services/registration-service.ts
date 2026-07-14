@@ -38,11 +38,32 @@ export class RegistrationService {
   public constructor(private readonly options: RegistrationServiceOptions) {}
 
   public async create(input: CreateRegistrationInput): Promise<Registration> {
+    return this.createInternal(input);
+  }
+
+  public async createByStaff(
+    input: CreateRegistrationInput,
+    actorDiscordId: string,
+    expectedTournamentId: string,
+  ): Promise<Registration> {
+    return this.createInternal(input, actorDiscordId, expectedTournamentId);
+  }
+
+  private async createInternal(
+    input: CreateRegistrationInput,
+    actorDiscordId?: string,
+    expectedTournamentId?: string,
+  ): Promise<Registration> {
     try {
       return await withTransaction(this.options.pool, async (client) => {
         const current = await this.options.tournaments.getCurrent(client);
         if (current === null) {
           throw new ConflictError("As inscrições não estão abertas no momento.");
+        }
+        if (expectedTournamentId !== undefined && current.id !== expectedTournamentId) {
+          throw new ConflictError(
+            "O torneio atual mudou enquanto o formulário estava aberto. Execute /inscrever novamente.",
+          );
         }
         const lockedTournament = await this.options.tournaments.getByIdForUpdate(current.id, client);
         if (lockedTournament?.status !== "registrations_open") {
@@ -85,6 +106,34 @@ export class RegistrationService {
           },
           client,
         );
+        if (actorDiscordId !== undefined) {
+          await this.options.auditLogs.create(
+            {
+              action: "registration.created_by_staff",
+              actorDiscordId,
+              targetId: registration.id,
+              metadata: {
+                tournamentId: lockedTournament.id,
+                discordUserId: registration.discordUserId,
+              },
+            },
+            client,
+          );
+          await this.options.outbox.enqueue(
+            {
+              eventType: DISCORD_OUTBOX_EVENTS.administrativeAction,
+              channelId: this.options.logsChannelId,
+              deduplicationKey: `registration.created_by_staff:${registration.id}`,
+              payload: {
+                action: "registration.created_by_staff",
+                actorDiscordId,
+                targetId: registration.id,
+                robloxUsername: registration.robloxUsername,
+              },
+            },
+            client,
+          );
+        }
         return registration;
       });
     } catch (error) {
@@ -122,7 +171,7 @@ export class RegistrationService {
     return registration;
   }
 
-  public async getPendingByDiscordUserId(discordUserId: string): Promise<Registration> {
+  public async getCurrentByDiscordUserId(discordUserId: string): Promise<Registration> {
     const tournament = await this.options.tournaments.getCurrent();
     if (tournament === null) {
       throw new NotFoundError("Nenhum torneio está disponível no momento.");
@@ -132,8 +181,15 @@ export class RegistrationService {
       discordUserId,
     );
     if (registration === null) {
-      throw new NotFoundError("Este jogador não possui inscrição no torneio atual.");
+      throw new NotFoundError(
+        "Não encontrei uma inscrição ligada a esse usuário no torneio atual. Confira se ele informou o Discord ID correto no formulário ou use os botões da nova inscrição.",
+      );
     }
+    return registration;
+  }
+
+  public async getPendingByDiscordUserId(discordUserId: string): Promise<Registration> {
+    const registration = await this.getCurrentByDiscordUserId(discordUserId);
     if (registration.status !== "pending") {
       throw new ConflictError("A inscrição deste jogador já foi analisada.");
     }

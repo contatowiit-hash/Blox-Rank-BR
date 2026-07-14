@@ -9,6 +9,7 @@ describe("comandos e embeds do Discord", () => {
     const commands = commandDefinitions.map((definition) => definition.toJSON());
     expect(commands.map((command) => command.name)).toEqual([
       DISCORD_COMMAND_NAMES.registrations,
+      DISCORD_COMMAND_NAMES.register,
       DISCORD_COMMAND_NAMES.approve,
       DISCORD_COMMAND_NAMES.reject,
       DISCORD_COMMAND_NAMES.result,
@@ -21,9 +22,27 @@ describe("comandos e embeds do Discord", () => {
       DISCORD_COMMAND_NAMES.ping,
     ]);
 
+    const register = commands.find((command) => command.name === DISCORD_COMMAND_NAMES.register);
     const approve = commands.find((command) => command.name === DISCORD_COMMAND_NAMES.approve);
     const reject = commands.find((command) => command.name === DISCORD_COMMAND_NAMES.reject);
     const result = commands.find((command) => command.name === DISCORD_COMMAND_NAMES.result);
+    expect(register?.options).toMatchObject([
+      { name: "jogador", required: true, type: 6 },
+      {
+        name: "faccao",
+        required: true,
+        choices: [{ name: "Pirata", value: "pirate" }, { name: "Marinheiro", value: "marine" }],
+      },
+      {
+        name: "plataforma",
+        required: true,
+        choices: [
+          { name: "Computador", value: "pc" },
+          { name: "Celular", value: "mobile" },
+          { name: "Console", value: "console" },
+        ],
+      },
+    ]);
     expect(approve?.options).toMatchObject([{ name: "jogador", required: true, type: 6 }]);
     expect(reject?.options).toMatchObject([
       { name: "jogador", required: true, type: 6 },

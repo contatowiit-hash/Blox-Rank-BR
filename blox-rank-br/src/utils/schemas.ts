@@ -24,8 +24,16 @@ export const createRegistrationSchema = z
       ),
     discord_user_id: discordIdSchema,
     discord_username: cleanLimitedText(2, 64, "O nome do Discord"),
-    level: z.number().int().min(1).max(10_000),
-    bounty_honor: z.number().int().min(0).max(1_000_000_000),
+    level: z
+      .number("O level deve ser um número")
+      .int("O level deve ser um número inteiro")
+      .min(1, "O level deve ser pelo menos 1")
+      .max(10_000, "O level informado é muito alto"),
+    bounty_honor: z
+      .number("O Bounty/Honor deve ser um número")
+      .int("O Bounty/Honor deve ser um número inteiro")
+      .min(0, "O Bounty/Honor não pode ser negativo")
+      .max(1_000_000_000, "O Bounty/Honor informado é muito alto"),
     faction: z.enum(["pirate", "marine"]),
     platform: z.enum(["pc", "mobile", "console"]),
     main_fruit: cleanLimitedText(1, 80, "A fruta principal"),

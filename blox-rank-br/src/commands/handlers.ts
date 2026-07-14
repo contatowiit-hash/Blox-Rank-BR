@@ -8,14 +8,21 @@ import {
   type ButtonInteraction,
   type ChatInputCommandInteraction,
   type ColorResolvable,
+  type GuildMember,
   type Interaction,
   type ModalSubmitInteraction,
 } from "discord.js";
 import { ZodError } from "zod";
 import type { ApplicationContext } from "../application-context.js";
 import type { AppEnv } from "../config/env.js";
-import { AppError } from "../utils/errors.js";
-import { matchResultSchema, updateRegistrationStatusSchema, uuidSchema } from "../utils/schemas.js";
+import { AppError, ValidationError } from "../utils/errors.js";
+import {
+  createRegistrationSchema,
+  discordIdSchema,
+  matchResultSchema,
+  updateRegistrationStatusSchema,
+  uuidSchema,
+} from "../utils/schemas.js";
 import { sanitizeErrorName, sanitizeText, truncateText } from "../utils/sanitize.js";
 import { DISCORD_COMMAND_NAMES } from "./definitions.js";
 import {
@@ -41,11 +48,17 @@ export interface DiscordCommandHandlerOptions {
 export type DiscordInteractionHandler = (interaction: Interaction) => Promise<void>;
 
 const ADMIN_COMMANDS = new Set<string>([
-  DISCORD_COMMAND_NAMES.registrations, DISCORD_COMMAND_NAMES.approve,
+  DISCORD_COMMAND_NAMES.registrations, DISCORD_COMMAND_NAMES.register,
+  DISCORD_COMMAND_NAMES.approve,
   DISCORD_COMMAND_NAMES.reject, DISCORD_COMMAND_NAMES.result,
   DISCORD_COMMAND_NAMES.openRegistrations, DISCORD_COMMAND_NAMES.closeRegistrations,
   DISCORD_COMMAND_NAMES.generateBracket,
 ]);
+const REGISTRATION_CREATE_MODAL_PATTERN = new RegExp(
+  `^${REGISTRATION_ACTION_PREFIX}:create:([0-9a-f-]{36}):(\\d{17,20}):(pirate|marine):(pc|mobile|console)$`,
+  "iu",
+);
+const DECIMAL_INTEGER_PATTERN = /^\d+$/u;
 const PUBLIC_COMMANDS = new Set<string>([
   DISCORD_COMMAND_NAMES.tournament, DISCORD_COMMAND_NAMES.participants,
   DISCORD_COMMAND_NAMES.bracket, DISCORD_COMMAND_NAMES.ping,
@@ -64,8 +77,18 @@ function isConfiguredGuild(interaction: Interaction, env: AppEnv): boolean {
 
 function publicErrorMessage(error: unknown): string {
   if (error instanceof AppError) return error.message;
-  if (error instanceof ZodError) return "Confira a opção escolhida e tente novamente.";
+  if (error instanceof ZodError) {
+    return sanitizeText(error.issues[0]?.message ?? "Confira os dados informados e tente novamente.");
+  }
   return "Não foi possível concluir esta ação agora. Tente novamente em instantes.";
+}
+
+function parseDecimalInteger(value: string, label: string): number {
+  const normalized = sanitizeText(value);
+  if (!DECIMAL_INTEGER_PATTERN.test(normalized)) {
+    throw new ValidationError(`${label} deve conter apenas números inteiros.`);
+  }
+  return Number(normalized);
 }
 
 async function editFeedback(interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction,
@@ -137,6 +160,56 @@ async function handleButton(interaction: ButtonInteraction, options: DiscordComm
 }
 
 async function handleModal(interaction: ModalSubmitInteraction, options: DiscordCommandHandlerOptions): Promise<void> {
+  const createMatch = REGISTRATION_CREATE_MODAL_PATTERN.exec(interaction.customId);
+  if (createMatch !== null) {
+    if (!isConfiguredGuild(interaction, options.env) || !memberHasRole(interaction, options.env.DISCORD_STAFF_ROLE_ID)) {
+      await interaction.reply({ embeds: [createFeedbackEmbed("Sem permissão", "Somente a equipe pode criar inscrições.")], flags: MessageFlags.Ephemeral }); return;
+    }
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const tournamentId = uuidSchema.parse(createMatch[1]);
+    const discordUserId = discordIdSchema.parse(createMatch[2]);
+    let member: GuildMember;
+    try {
+      const guild = await interaction.client.guilds.fetch(options.env.DISCORD_GUILD_ID);
+      member = await guild.members.fetch(discordUserId);
+    } catch {
+      throw new ValidationError(
+        "Não foi possível confirmar esse jogador no servidor oficial. Tente novamente.",
+      );
+    }
+    if (member.id !== discordUserId || member.guild.id !== options.env.DISCORD_GUILD_ID) {
+      throw new ValidationError("O jogador selecionado não pertence ao servidor oficial.");
+    }
+    if (member.user.bot) {
+      throw new ValidationError("Bots não podem ser inscritos no torneio.");
+    }
+    const input = createRegistrationSchema.parse({
+      roblox_username: interaction.fields.getTextInputValue("roblox_username"),
+      discord_user_id: member.id,
+      discord_username: member.user.username,
+      level: parseDecimalInteger(interaction.fields.getTextInputValue("level"), "O level"),
+      bounty_honor: parseDecimalInteger(
+        interaction.fields.getTextInputValue("bounty_honor"),
+        "O Bounty/Honor",
+      ),
+      faction: createMatch[3],
+      platform: createMatch[4],
+      main_fruit: interaction.fields.getTextInputValue("main_fruit"),
+    });
+    const registration = await options.context.services.registrations.createByStaff(
+      input,
+      interaction.user.id,
+      tournamentId,
+    );
+    await editFeedback(
+      interaction,
+      "Inscrição criada",
+      `${registration.robloxUsername} foi inscrito e agora aguarda aprovação da equipe.`,
+      DISCORD_THEME.purple,
+    );
+    return;
+  }
+
   const match = new RegExp(`^${REGISTRATION_ACTION_PREFIX}:reject-modal:([0-9a-f-]{36})$`, "iu").exec(interaction.customId);
   if (match === null) return;
   if (!isConfiguredGuild(interaction, options.env) || !memberHasRole(interaction, options.env.DISCORD_STAFF_ROLE_ID)) {
@@ -154,10 +227,42 @@ async function executeCommand(interaction: ChatInputCommandInteraction, options:
       const page = await services.registrations.list({ page: 1, limit: 100, status: "pending" });
       await interaction.editReply({ embeds: createPendingRegistrationEmbeds(page.items), allowedMentions: NO_DISCORD_MENTIONS }); return;
     }
+    case DISCORD_COMMAND_NAMES.register: {
+      const selectedUser = interaction.options.getUser("jogador", true);
+      if (selectedUser.bot) {
+        throw new ValidationError("Bots não podem ser inscritos no torneio.");
+      }
+      const faction = interaction.options.getString("faccao", true);
+      const platform = interaction.options.getString("plataforma", true);
+      const tournament = await services.tournaments.getCurrent();
+      const modal = new ModalBuilder()
+        .setCustomId(`${REGISTRATION_ACTION_PREFIX}:create:${tournament.id}:${selectedUser.id}:${faction}:${platform}`)
+        .setTitle("Inscrever jogador")
+        .addComponents(
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder().setCustomId("roblox_username").setLabel("Nick do Roblox")
+              .setStyle(TextInputStyle.Short).setMinLength(3).setMaxLength(20).setRequired(true),
+          ),
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder().setCustomId("level").setLabel("Level")
+              .setStyle(TextInputStyle.Short).setMinLength(1).setMaxLength(5).setRequired(true),
+          ),
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder().setCustomId("bounty_honor").setLabel("Bounty ou Honor")
+              .setStyle(TextInputStyle.Short).setMinLength(1).setMaxLength(10).setRequired(true),
+          ),
+          new ActionRowBuilder<TextInputBuilder>().addComponents(
+            new TextInputBuilder().setCustomId("main_fruit").setLabel("Fruta principal")
+              .setStyle(TextInputStyle.Short).setMinLength(1).setMaxLength(80).setRequired(true),
+          ),
+        );
+      await interaction.showModal(modal);
+      return;
+    }
     case DISCORD_COMMAND_NAMES.approve: {
       const selectedUser = interaction.options.getUser("jogador", true);
-      const pending = await services.registrations.getPendingByDiscordUserId(selectedUser.id);
-      const item = await approve(pending.id, interaction.user.id, options.context);
+      const registration = await services.registrations.getCurrentByDiscordUserId(selectedUser.id);
+      const item = await approve(registration.id, interaction.user.id, options.context);
       await editFeedback(interaction, "Inscrição aprovada", `${item.robloxUsername} foi aprovado. O cargo será entregue automaticamente.`, DISCORD_THEME.purple); return;
     }
     case DISCORD_COMMAND_NAMES.reject: {
@@ -224,10 +329,14 @@ export function createDiscordInteractionHandler(options: DiscordCommandHandlerOp
       if (!administrative && !PUBLIC_COMMANDS.has(interaction.commandName)) {
         await interaction.reply({ embeds: [createFeedbackEmbed("Comando não reconhecido", "Atualize o Discord e tente novamente.")], flags: MessageFlags.Ephemeral }); return;
       }
-      await interaction.deferReply(administrative ? { flags: MessageFlags.Ephemeral } : {});
       if (administrative && !memberHasRole(interaction, options.env.DISCORD_STAFF_ROLE_ID)) {
-        await editFeedback(interaction, "Sem permissão", "Somente a equipe do torneio pode usar este comando.", DISCORD_THEME.purple); return;
+        await interaction.reply({ embeds: [createFeedbackEmbed("Sem permissão", "Somente a equipe do torneio pode usar este comando.", DISCORD_THEME.purple)], flags: MessageFlags.Ephemeral }); return;
       }
+      if (interaction.commandName === DISCORD_COMMAND_NAMES.register) {
+        await executeCommand(interaction, options);
+        return;
+      }
+      await interaction.deferReply(administrative ? { flags: MessageFlags.Ephemeral } : {});
       await executeCommand(interaction, options);
     } catch (error) {
       logFailure(options, interaction, error);

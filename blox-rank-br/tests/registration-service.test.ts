@@ -34,6 +34,171 @@ const approvedRegistration: Registration = {
   updatedAt: FIXED_DATE,
 };
 
+const pendingRegistration: Registration = {
+  ...approvedRegistration,
+  status: "pending",
+  approvedByDiscordId: null,
+};
+
+describe("RegistrationService.createByStaff", () => {
+  it("grava a inscrição, a auditoria e os avisos na mesma transação", async () => {
+    const query = vi.fn(async (_sql: string) => ({ rows: [], rowCount: 0 }));
+    const release = vi.fn();
+    const client = { query, release } as unknown as PoolClient;
+    const pool = { connect: vi.fn(async () => client) } as unknown as Pool;
+    const createRegistration = vi.fn(async () => pendingRegistration);
+    const getCurrent = vi.fn(async () => ({ id: TOURNAMENT_ID }));
+    const getByIdForUpdate = vi.fn(async () => ({
+      id: TOURNAMENT_ID,
+      name: "Blox Rank BR",
+      status: "registrations_open" as const,
+      maxPlayers: 16,
+      createdAt: FIXED_DATE,
+      updatedAt: FIXED_DATE,
+    }));
+    const createAudit = vi.fn(async () => ({
+      id: AUDIT_ID,
+      action: "registration.created_by_staff",
+      actorDiscordId: ACTOR_ID,
+      targetId: REGISTRATION_ID,
+      metadata: {},
+      createdAt: FIXED_DATE,
+    }));
+    const enqueue = vi.fn(async (input: { deduplicationKey?: string | null }) => ({
+      id: input.deduplicationKey,
+    }));
+    const service = new RegistrationService({
+      pool,
+      registrations: { create: createRegistration } as unknown as RegistrationRepository,
+      tournaments: { getCurrent, getByIdForUpdate } as unknown as TournamentRepository,
+      auditLogs: { create: createAudit } as unknown as AuditLogRepository,
+      outbox: { enqueue } as unknown as OutboxRepository,
+      registrationsChannelId: "323456789012345678",
+      logsChannelId: "423456789012345678",
+      participantRoleId: "523456789012345678",
+    });
+
+    const result = await service.createByStaff({
+      roblox_username: "Jogador_BR",
+      discord_user_id: DISCORD_ID,
+      discord_username: "jogador",
+      level: 2_550,
+      bounty_honor: 30_000_000,
+      faction: "pirate",
+      platform: "pc",
+      main_fruit: "Dragon",
+    }, ACTOR_ID, TOURNAMENT_ID);
+
+    expect(result).toBe(pendingRegistration);
+    expect(createRegistration).toHaveBeenCalledWith(expect.objectContaining({
+      tournamentId: TOURNAMENT_ID,
+      discordUserId: DISCORD_ID,
+      robloxUsername: "Jogador_BR",
+    }), client);
+    expect(createAudit).toHaveBeenCalledWith({
+      action: "registration.created_by_staff",
+      actorDiscordId: ACTOR_ID,
+      targetId: REGISTRATION_ID,
+      metadata: { tournamentId: TOURNAMENT_ID, discordUserId: DISCORD_ID },
+    }, client);
+    expect(enqueue).toHaveBeenCalledTimes(2);
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: "registration.created",
+      channelId: "323456789012345678",
+      deduplicationKey: `registration.created:${REGISTRATION_ID}`,
+    }), client);
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: "administrative.action",
+      channelId: "423456789012345678",
+      deduplicationKey: `registration.created_by_staff:${REGISTRATION_ID}`,
+      payload: expect.objectContaining({ action: "registration.created_by_staff" }),
+    }), client);
+    expect(query.mock.calls.map(([sql]) => sql)).toEqual(["BEGIN", "COMMIT"]);
+    expect(release).toHaveBeenCalledWith(false);
+  });
+
+  it("faz rollback se a auditoria da criação não puder ser registrada", async () => {
+    const query = vi.fn(async (_sql: string) => ({ rows: [], rowCount: 0 }));
+    const release = vi.fn();
+    const client = { query, release } as unknown as PoolClient;
+    const pool = { connect: vi.fn(async () => client) } as unknown as Pool;
+    const enqueue = vi.fn(async () => ({ id: "outbox" }));
+    const service = new RegistrationService({
+      pool,
+      registrations: {
+        create: vi.fn(async () => pendingRegistration),
+      } as unknown as RegistrationRepository,
+      tournaments: {
+        getCurrent: vi.fn(async () => ({ id: TOURNAMENT_ID })),
+        getByIdForUpdate: vi.fn(async () => ({
+          id: TOURNAMENT_ID,
+          name: "Blox Rank BR",
+          status: "registrations_open",
+        })),
+      } as unknown as TournamentRepository,
+      auditLogs: {
+        create: vi.fn(async () => { throw new Error("audit unavailable"); }),
+      } as unknown as AuditLogRepository,
+      outbox: { enqueue } as unknown as OutboxRepository,
+      registrationsChannelId: "323456789012345678",
+      logsChannelId: "423456789012345678",
+      participantRoleId: "523456789012345678",
+    });
+
+    await expect(service.createByStaff({
+      roblox_username: "Jogador_BR",
+      discord_user_id: DISCORD_ID,
+      discord_username: "jogador",
+      level: 2_550,
+      bounty_honor: 30_000_000,
+      faction: "pirate",
+      platform: "pc",
+      main_fruit: "Dragon",
+    }, ACTOR_ID, TOURNAMENT_ID)).rejects.toThrow("audit unavailable");
+
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls.map(([sql]) => sql)).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(release).toHaveBeenCalledWith(false);
+  });
+
+  it("não inscreve na edição errada se o torneio atual mudar durante o formulário", async () => {
+    const query = vi.fn(async (_sql: string) => ({ rows: [], rowCount: 0 }));
+    const release = vi.fn();
+    const client = { query, release } as unknown as PoolClient;
+    const createRegistration = vi.fn();
+    const service = new RegistrationService({
+      pool: { connect: vi.fn(async () => client) } as unknown as Pool,
+      registrations: { create: createRegistration } as unknown as RegistrationRepository,
+      tournaments: {
+        getCurrent: vi.fn(async () => ({ id: "44444444-4444-4444-8444-444444444444" })),
+      } as unknown as TournamentRepository,
+      auditLogs: {} as AuditLogRepository,
+      outbox: {} as OutboxRepository,
+      registrationsChannelId: "323456789012345678",
+      logsChannelId: "423456789012345678",
+      participantRoleId: "523456789012345678",
+    });
+
+    await expect(service.createByStaff({
+      roblox_username: "Jogador_BR",
+      discord_user_id: DISCORD_ID,
+      discord_username: "jogador",
+      level: 2_550,
+      bounty_honor: 30_000_000,
+      faction: "pirate",
+      platform: "pc",
+      main_fruit: "Dragon",
+    }, ACTOR_ID, TOURNAMENT_ID)).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: "O torneio atual mudou enquanto o formulário estava aberto. Execute /inscrever novamente.",
+    });
+
+    expect(createRegistration).not.toHaveBeenCalled();
+    expect(query.mock.calls.map(([sql]) => sql)).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(release).toHaveBeenCalledWith(false);
+  });
+});
+
 describe("RegistrationService.updateStatus", () => {
   it("permite repetir aprovação para reenfileirar o cargo com nova chave idempotente", async () => {
     const query = vi.fn(async (_sql: string) => ({ rows: [], rowCount: 0 }));
@@ -106,9 +271,8 @@ describe("RegistrationService.getPendingByDiscordUserId", () => {
   }
 
   it("encontra a inscrição pendente do usuário no torneio atual", async () => {
-    const pending = { ...approvedRegistration, status: "pending" as const, approvedByDiscordId: null };
-    const harness = serviceFor(pending);
-    await expect(harness.service.getPendingByDiscordUserId(DISCORD_ID)).resolves.toBe(pending);
+    const harness = serviceFor(pendingRegistration);
+    await expect(harness.service.getPendingByDiscordUserId(DISCORD_ID)).resolves.toBe(pendingRegistration);
     expect(harness.getByDiscordUserId).toHaveBeenCalledWith(TOURNAMENT_ID, DISCORD_ID);
   });
 
