@@ -5,7 +5,7 @@ import { createNewRegistrationEmbed, createPendingRegistrationEmbeds, createRegi
 import { hasUnsafeParticipantPermissions } from "../src/utils/discord-permissions.js";
 
 describe("comandos e embeds do Discord", () => {
-  it("serializa os guild commands e opções de busca", () => {
+  it("serializa comandos simples com seleção de jogador por menção", () => {
     const commands = commandDefinitions.map((definition) => definition.toJSON());
     expect(commands.map((command) => command.name)).toEqual([
       DISCORD_COMMAND_NAMES.registrations,
@@ -24,9 +24,9 @@ describe("comandos e embeds do Discord", () => {
     const approve = commands.find((command) => command.name === DISCORD_COMMAND_NAMES.approve);
     const reject = commands.find((command) => command.name === DISCORD_COMMAND_NAMES.reject);
     const result = commands.find((command) => command.name === DISCORD_COMMAND_NAMES.result);
-    expect(approve?.options).toMatchObject([{ name: "inscricao", required: true, autocomplete: true }]);
+    expect(approve?.options).toMatchObject([{ name: "jogador", required: true, type: 6 }]);
     expect(reject?.options).toMatchObject([
-      { name: "inscricao", required: true, autocomplete: true },
+      { name: "jogador", required: true, type: 6 },
       { name: "motivo", required: true, min_length: 3, max_length: 500 },
     ]);
     expect(result?.options).toMatchObject([
@@ -34,6 +34,15 @@ describe("comandos e embeds do Discord", () => {
       { name: "placar_jogador_1", required: true, min_value: 0, max_value: 100 },
       { name: "placar_jogador_2", required: true, min_value: 0, max_value: 100 },
     ]);
+    for (const name of [
+      DISCORD_COMMAND_NAMES.openRegistrations,
+      DISCORD_COMMAND_NAMES.closeRegistrations,
+      DISCORD_COMMAND_NAMES.generateBracket,
+      DISCORD_COMMAND_NAMES.participants,
+      DISCORD_COMMAND_NAMES.bracket,
+    ]) {
+      expect(commands.find((command) => command.name === name)?.options ?? []).toHaveLength(0);
+    }
   });
 
   it("cria botões com UUID interno sem colocar dados do jogador no custom id", () => {
@@ -59,6 +68,8 @@ describe("comandos e embeds do Discord", () => {
     };
     const json = createNewRegistrationEmbed(registration).toJSON();
     expect(JSON.stringify(json)).not.toContain("@everyone");
+    expect(JSON.stringify(json)).not.toContain(registration.id);
+    expect(JSON.stringify(json)).not.toContain(registration.discordUserId);
 
     const embeds = createPendingRegistrationEmbeds(
       Array.from({ length: 25 }, (_, index) => ({

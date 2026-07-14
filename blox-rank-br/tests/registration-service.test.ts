@@ -88,3 +88,35 @@ describe("RegistrationService.updateStatus", () => {
     expect(release).toHaveBeenCalledWith(false);
   });
 });
+
+describe("RegistrationService.getPendingByDiscordUserId", () => {
+  function serviceFor(registration: Registration | null) {
+    const getByDiscordUserId = vi.fn(async () => registration);
+    const service = new RegistrationService({
+      pool: {} as Pool,
+      registrations: { getByDiscordUserId } as unknown as RegistrationRepository,
+      tournaments: { getCurrent: vi.fn(async () => ({ id: TOURNAMENT_ID })) } as unknown as TournamentRepository,
+      auditLogs: {} as AuditLogRepository,
+      outbox: {} as OutboxRepository,
+      registrationsChannelId: "323456789012345678",
+      logsChannelId: "423456789012345678",
+      participantRoleId: "523456789012345678",
+    });
+    return { service, getByDiscordUserId };
+  }
+
+  it("encontra a inscrição pendente do usuário no torneio atual", async () => {
+    const pending = { ...approvedRegistration, status: "pending" as const, approvedByDiscordId: null };
+    const harness = serviceFor(pending);
+    await expect(harness.service.getPendingByDiscordUserId(DISCORD_ID)).resolves.toBe(pending);
+    expect(harness.getByDiscordUserId).toHaveBeenCalledWith(TOURNAMENT_ID, DISCORD_ID);
+  });
+
+  it("explica quando a inscrição do usuário já foi analisada", async () => {
+    const harness = serviceFor(approvedRegistration);
+    await expect(harness.service.getPendingByDiscordUserId(DISCORD_ID)).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: "A inscrição deste jogador já foi analisada.",
+    });
+  });
+});

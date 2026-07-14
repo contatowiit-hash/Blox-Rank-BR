@@ -170,11 +170,6 @@ export function createNewRegistrationEmbed(registration: RegistrationEmbedData):
         value: safeText(registration.discordUsername, EMBED_FIELD_VALUE_MAX_LENGTH),
         inline: true,
       },
-      {
-        name: "ID do Discord",
-        value: inlineCode(registration.discordUserId),
-        inline: false,
-      },
       { name: "Nível", value: formatNumber(registration.level), inline: true },
       {
         name: "Bounty/Honor",
@@ -188,7 +183,6 @@ export function createNewRegistrationEmbed(registration: RegistrationEmbedData):
         value: safeText(registration.mainFruit, EMBED_FIELD_VALUE_MAX_LENGTH),
         inline: true,
       },
-      { name: "Código da inscrição", value: inlineCode(registration.id), inline: false },
     );
   if (registration.tournamentName !== undefined) {
     embed.addFields({
@@ -213,7 +207,6 @@ export function createTournamentSummaryEmbed(
     registrations_closed: "Inscrições encerradas", active: "Em andamento", finished: "Finalizado",
   };
   return createBaseEmbed(tournament.name, DISCORD_THEME.darkBlue).addFields(
-    { name: "UUID", value: inlineCode(tournament.id), inline: false },
     { name: "Status", value: statuses[tournament.status], inline: true },
     { name: "Limite", value: formatNumber(tournament.maxPlayers), inline: true },
     { name: "Inscrições", value: formatNumber(counts.total), inline: true },
@@ -240,7 +233,6 @@ function pendingRegistrationField(
   position: number,
 ): APIEmbedField {
   const value = [
-    `Código: ${inlineCode(registration.id, 120)}`,
     `Discord: ${safeText(registration.discordUsername, 100)}`,
     `Bounty/Honor: ${formatNumber(registration.bountyHonor)}`,
   ].join("\n");

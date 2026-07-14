@@ -14,7 +14,6 @@ import {
 import { ZodError } from "zod";
 import type { ApplicationContext } from "../application-context.js";
 import type { AppEnv } from "../config/env.js";
-import type { Registration } from "../types/domain.js";
 import { AppError } from "../utils/errors.js";
 import { matchResultSchema, updateRegistrationStatusSchema, uuidSchema } from "../utils/schemas.js";
 import { sanitizeErrorName, sanitizeText, truncateText } from "../utils/sanitize.js";
@@ -51,7 +50,6 @@ const PUBLIC_COMMANDS = new Set<string>([
   DISCORD_COMMAND_NAMES.tournament, DISCORD_COMMAND_NAMES.participants,
   DISCORD_COMMAND_NAMES.bracket, DISCORD_COMMAND_NAMES.ping,
 ]);
-const numberFormatter = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 });
 
 function memberHasRole(interaction: Interaction, roleId: string): boolean {
   const roles = interaction.member?.roles;
@@ -88,23 +86,11 @@ function logFailure(options: DiscordCommandHandlerOptions, interaction: Interact
   "Uma interação do Discord falhou");
 }
 
-function registrationChoice(item: Registration) {
-  const name = truncateText(`${item.robloxUsername} • ${item.discordUsername} • ${numberFormatter.format(item.bountyHonor)}`, 100);
-  return { name, value: item.id };
-}
-
 async function handleAutocomplete(interaction: AutocompleteInteraction, options: DiscordCommandHandlerOptions): Promise<void> {
   if (!isConfiguredGuild(interaction, options.env) || !memberHasRole(interaction, options.env.DISCORD_STAFF_ROLE_ID)) {
     await interaction.respond([]); return;
   }
   const focused = interaction.options.getFocused(true);
-  if ([DISCORD_COMMAND_NAMES.approve, DISCORD_COMMAND_NAMES.reject].includes(interaction.commandName as never) && focused.name === "inscricao") {
-    const query = sanitizeText(String(focused.value)).toLocaleLowerCase("pt-BR");
-    const page = await options.context.services.registrations.list({ page: 1, limit: 100, status: "pending" });
-    await interaction.respond(page.items.filter((item) => query === "" || item.robloxUsername.toLocaleLowerCase("pt-BR").includes(query)
-      || item.discordUsername.toLocaleLowerCase("pt-BR").includes(query)).slice(0, 25).map(registrationChoice));
-    return;
-  }
   if (interaction.commandName === DISCORD_COMMAND_NAMES.result && focused.name === "partida") {
     const query = sanitizeText(String(focused.value)).toLocaleLowerCase("pt-BR");
     const bracket = await options.context.services.tournaments.getCurrentBracket();
@@ -161,11 +147,6 @@ async function handleModal(interaction: ModalSubmitInteraction, options: Discord
   await editFeedback(interaction, "Inscrição recusada", `${registration.robloxUsername} foi recusado e o motivo foi registrado.`, DISCORD_THEME.purple);
 }
 
-function optionalTournamentId(interaction: ChatInputCommandInteraction): string | undefined {
-  const value = interaction.options.getString("torneio");
-  return value === null ? undefined : uuidSchema.parse(value);
-}
-
 async function executeCommand(interaction: ChatInputCommandInteraction, options: DiscordCommandHandlerOptions): Promise<void> {
   const services = options.context.services;
   switch (interaction.commandName) {
@@ -174,11 +155,15 @@ async function executeCommand(interaction: ChatInputCommandInteraction, options:
       await interaction.editReply({ embeds: createPendingRegistrationEmbeds(page.items), allowedMentions: NO_DISCORD_MENTIONS }); return;
     }
     case DISCORD_COMMAND_NAMES.approve: {
-      const item = await approve(uuidSchema.parse(interaction.options.getString("inscricao", true)), interaction.user.id, options.context);
+      const selectedUser = interaction.options.getUser("jogador", true);
+      const pending = await services.registrations.getPendingByDiscordUserId(selectedUser.id);
+      const item = await approve(pending.id, interaction.user.id, options.context);
       await editFeedback(interaction, "Inscrição aprovada", `${item.robloxUsername} foi aprovado. O cargo será entregue automaticamente.`, DISCORD_THEME.purple); return;
     }
     case DISCORD_COMMAND_NAMES.reject: {
-      const item = await reject(uuidSchema.parse(interaction.options.getString("inscricao", true)), interaction.options.getString("motivo", true), interaction.user.id, options.context);
+      const selectedUser = interaction.options.getUser("jogador", true);
+      const pending = await services.registrations.getPendingByDiscordUserId(selectedUser.id);
+      const item = await reject(pending.id, interaction.options.getString("motivo", true), interaction.user.id, options.context);
       await editFeedback(interaction, "Inscrição recusada", `${item.robloxUsername} foi recusado e o motivo foi registrado.`, DISCORD_THEME.purple); return;
     }
     case DISCORD_COMMAND_NAMES.result: {
@@ -198,24 +183,24 @@ async function executeCommand(interaction: ChatInputCommandInteraction, options:
     }
     case DISCORD_COMMAND_NAMES.openRegistrations:
     case DISCORD_COMMAND_NAMES.closeRegistrations: {
-      const tournament = await services.tournaments.resolve(optionalTournamentId(interaction));
+      const tournament = await services.tournaments.getCurrent();
       const opened = interaction.commandName === DISCORD_COMMAND_NAMES.openRegistrations;
       const updated = opened ? await services.tournaments.setRegistrationsOpen(tournament.id, interaction.user.id)
         : await services.tournaments.setRegistrationsClosed(tournament.id, interaction.user.id);
       await editFeedback(interaction, opened ? "Inscrições abertas" : "Inscrições encerradas", `${updated.name} foi atualizado com sucesso.`, DISCORD_THEME.purple); return;
     }
     case DISCORD_COMMAND_NAMES.generateBracket: {
-      const tournament = await services.tournaments.resolve(optionalTournamentId(interaction));
+      const tournament = await services.tournaments.getCurrent();
       const bracket = await services.tournaments.generateBracket(tournament.id, interaction.user.id);
       await interaction.editReply({ embeds: createBracketEmbeds(bracket.tournament.name, bracket.matches) }); return;
     }
     case DISCORD_COMMAND_NAMES.participants: {
-      const tournament = await services.tournaments.resolve(optionalTournamentId(interaction));
+      const tournament = await services.tournaments.getCurrent();
       const page = await services.registrations.list({ page: 1, limit: 100, status: "approved", tournament_id: tournament.id });
       await interaction.editReply({ embeds: createParticipantsEmbeds(tournament.name, page.items), allowedMentions: NO_DISCORD_MENTIONS }); return;
     }
     case DISCORD_COMMAND_NAMES.bracket: {
-      const bracket = await services.tournaments.getBracket(optionalTournamentId(interaction));
+      const bracket = await services.tournaments.getCurrentBracket();
       await interaction.editReply({ embeds: createBracketEmbeds(bracket.tournament.name, bracket.matches), allowedMentions: NO_DISCORD_MENTIONS }); return;
     }
     case DISCORD_COMMAND_NAMES.ping: {

@@ -122,6 +122,24 @@ export class RegistrationService {
     return registration;
   }
 
+  public async getPendingByDiscordUserId(discordUserId: string): Promise<Registration> {
+    const tournament = await this.options.tournaments.getCurrent();
+    if (tournament === null) {
+      throw new NotFoundError("Nenhum torneio está disponível no momento.");
+    }
+    const registration = await this.options.registrations.getByDiscordUserId(
+      tournament.id,
+      discordUserId,
+    );
+    if (registration === null) {
+      throw new NotFoundError("Este jogador não possui inscrição no torneio atual.");
+    }
+    if (registration.status !== "pending") {
+      throw new ConflictError("A inscrição deste jogador já foi analisada.");
+    }
+    return registration;
+  }
+
   public async updateStatus(
     id: string,
     input: UpdateRegistrationStatusInput,

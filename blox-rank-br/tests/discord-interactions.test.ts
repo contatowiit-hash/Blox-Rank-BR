@@ -32,26 +32,23 @@ function baseInteraction() {
 }
 
 describe("interações de UX do Discord", () => {
-  it("busca inscrições pendentes por Roblox/Discord e limita o autocomplete a 25", async () => {
-    const items = Array.from({ length: 30 }, (_, index) => ({
-      id: `${String(index).padStart(8, "0")}-1111-4111-8111-111111111111`,
-      robloxUsername: `BuscaPlayer${index}`, discordUsername: `discord${index}`,
-      bountyHonor: 1_000_000 + index, status: "pending",
-    }));
-    const list = vi.fn(async () => ({ items, total: items.length, page: 1, limit: 100 }));
-    const respond = vi.fn();
+  it("aprova pela menção e resolve o ID do Discord somente no servidor", async () => {
+    const selectedDiscordId = "444444444444444444";
+    const getPendingByDiscordUserId = vi.fn(async () => ({ id: REGISTRATION_ID }));
+    const updateStatus = vi.fn(async () => ({ robloxUsername: "JogadorBR" }));
+    const deferReply = vi.fn();
+    const editReply = vi.fn();
     const interaction = {
-      ...baseInteraction(), isAutocomplete: () => true, commandName: "aprovar",
-      options: { getFocused: () => ({ name: "inscricao", value: "busca" }) }, respond,
+      ...baseInteraction(), deferred: true, replied: false,
+      isChatInputCommand: () => true, commandName: "aprovar",
+      options: { getUser: () => ({ id: selectedDiscordId }) }, deferReply, editReply,
     };
-    await createDiscordInteractionHandler(options({ services: { registrations: { list } } } as never))(interaction as never);
-    expect(list).toHaveBeenCalledWith({ page: 1, limit: 100, status: "pending" });
-    expect(respond).toHaveBeenCalledOnce();
-    const choices = respond.mock.calls[0]![0] as Array<{ name: string; value: string }>;
-    expect(choices).toHaveLength(25);
-    expect(choices[0]?.name).toContain("BuscaPlayer0");
-    expect(choices[0]?.name).toContain("discord0");
-    expect(choices[0]?.value).toBe(items[0]!.id);
+    await createDiscordInteractionHandler(options({ services: { registrations: {
+      getPendingByDiscordUserId, updateStatus,
+    } } } as never))(interaction as never);
+    expect(getPendingByDiscordUserId).toHaveBeenCalledWith(selectedDiscordId);
+    expect(updateStatus).toHaveBeenCalledWith(REGISTRATION_ID, { status: "approved" }, USER_ID);
+    expect(editReply).toHaveBeenCalledOnce();
   });
 
   it("oferece somente partidas jogáveis e pendentes no autocomplete de resultado", async () => {
