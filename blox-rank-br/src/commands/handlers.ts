@@ -15,7 +15,12 @@ import {
 import { ZodError } from "zod";
 import type { ApplicationContext } from "../application-context.js";
 import type { AppEnv } from "../config/env.js";
-import { AppError, ValidationError } from "../utils/errors.js";
+import {
+  AppError,
+  ConflictError,
+  ServiceUnavailableError,
+  ValidationError,
+} from "../utils/errors.js";
 import {
   createRegistrationSchema,
   discordIdSchema,
@@ -59,6 +64,7 @@ const REGISTRATION_CREATE_MODAL_PATTERN = new RegExp(
   "iu",
 );
 const DECIMAL_INTEGER_PATTERN = /^\d+$/u;
+const DISCORD_INITIAL_RESPONSE_TIMEOUT_MS = 1_500;
 const PUBLIC_COMMANDS = new Set<string>([
   DISCORD_COMMAND_NAMES.tournament, DISCORD_COMMAND_NAMES.participants,
   DISCORD_COMMAND_NAMES.bracket, DISCORD_COMMAND_NAMES.ping,
@@ -89,6 +95,22 @@ function parseDecimalInteger(value: string, label: string): number {
     throw new ValidationError(`${label} deve conter apenas números inteiros.`);
   }
   return Number(normalized);
+}
+
+async function beforeDiscordResponseDeadline<T>(operation: Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new ServiceUnavailableError(
+        "O sistema demorou para consultar o torneio. Execute /inscrever novamente.",
+      ));
+    }, DISCORD_INITIAL_RESPONSE_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([operation, deadline]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 async function editFeedback(interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction,
@@ -234,7 +256,12 @@ async function executeCommand(interaction: ChatInputCommandInteraction, options:
       }
       const faction = interaction.options.getString("faccao", true);
       const platform = interaction.options.getString("plataforma", true);
-      const tournament = await services.tournaments.getCurrent();
+      const tournament = await beforeDiscordResponseDeadline(
+        services.tournaments.getCurrent(),
+      );
+      if (tournament.status !== "registrations_open") {
+        throw new ConflictError("As inscrições não estão abertas no momento.");
+      }
       const modal = new ModalBuilder()
         .setCustomId(`${REGISTRATION_ACTION_PREFIX}:create:${tournament.id}:${selectedUser.id}:${faction}:${platform}`)
         .setTitle("Inscrever jogador")

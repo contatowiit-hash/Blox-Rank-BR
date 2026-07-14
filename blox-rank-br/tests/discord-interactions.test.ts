@@ -71,7 +71,9 @@ describe("interações de UX do Discord", () => {
 
     await createDiscordInteractionHandler(options({ services: {
       registrations: { createByStaff },
-      tournaments: { getCurrent: vi.fn(async () => ({ id: TOURNAMENT_ID })) },
+      tournaments: {
+        getCurrent: vi.fn(async () => ({ id: TOURNAMENT_ID, status: "registrations_open" })),
+      },
     } } as never))(interaction as never);
 
     expect(showModal).toHaveBeenCalledOnce();
@@ -146,6 +148,68 @@ describe("interações de UX do Discord", () => {
 
     expect(reply).toHaveBeenCalledOnce();
     expect(showModal).not.toHaveBeenCalled();
+  });
+
+  it("não abre o formulário quando as inscrições estão fechadas", async () => {
+    const reply = vi.fn();
+    const showModal = vi.fn();
+    const interaction = {
+      ...baseInteraction(),
+      deferred: false,
+      replied: false,
+      isChatInputCommand: () => true,
+      commandName: "inscrever",
+      options: {
+        getUser: () => ({ id: "444444444444444444", bot: false }),
+        getString: (name: string) => name === "faccao" ? "pirate" : "pc",
+      },
+      reply,
+      showModal,
+    };
+
+    await createDiscordInteractionHandler(options({ services: {
+      tournaments: {
+        getCurrent: vi.fn(async () => ({ id: TOURNAMENT_ID, status: "registrations_closed" })),
+      },
+    } } as never))(interaction as never);
+
+    expect(showModal).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledOnce();
+    expect(JSON.stringify(reply.mock.calls[0]![0])).toContain("inscrições não estão abertas");
+  });
+
+  it("responde antes do prazo do Discord quando a consulta do torneio demora", async () => {
+    vi.useFakeTimers();
+    try {
+      const reply = vi.fn();
+      const showModal = vi.fn();
+      const interaction = {
+        ...baseInteraction(),
+        deferred: false,
+        replied: false,
+        isChatInputCommand: () => true,
+        commandName: "inscrever",
+        options: {
+          getUser: () => ({ id: "444444444444444444", bot: false }),
+          getString: (name: string) => name === "faccao" ? "pirate" : "pc",
+        },
+        reply,
+        showModal,
+      };
+      const handler = createDiscordInteractionHandler(options({ services: {
+        tournaments: { getCurrent: vi.fn(() => new Promise<never>(() => undefined)) },
+      } } as never));
+
+      const handling = handler(interaction as never);
+      await vi.advanceTimersByTimeAsync(1_500);
+      await handling;
+
+      expect(showModal).not.toHaveBeenCalled();
+      expect(reply).toHaveBeenCalledOnce();
+      expect(JSON.stringify(reply.mock.calls[0]![0])).toContain("demorou para consultar o torneio");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("não aceita número em formato ambíguo no formulário de inscrição", async () => {
