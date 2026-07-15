@@ -6,6 +6,7 @@ Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: tr
 import {
   createAdminSessionToken,
   hashAdminPassword,
+  hashAdminPasswordWithSecret,
   verifyAdminPassword,
   verifyAdminSessionToken,
 } from "@/app/lib/auth/crypto";
@@ -16,7 +17,7 @@ const SESSION_SECRET = "session-secret-32-bytes-minimum-random-value";
 let passwordHash = "";
 
 beforeAll(async () => {
-  passwordHash = await hashAdminPassword(ADMIN_PASSWORD);
+  passwordHash = await hashAdminPasswordWithSecret(ADMIN_PASSWORD, SESSION_SECRET);
 });
 
 function configureEnvironment(): void {
@@ -30,10 +31,26 @@ function configureEnvironment(): void {
 
 describe("autenticação administrativa", () => {
   it("verifica PBKDF2 e rejeita senha ou hash alterados", async () => {
-    expect(passwordHash).toMatch(/^pbkdf2-sha256\$310000\$/u);
-    await expect(verifyAdminPassword(ADMIN_PASSWORD, passwordHash)).resolves.toBe(true);
-    await expect(verifyAdminPassword("senha-incorreta", passwordHash)).resolves.toBe(false);
-    await expect(verifyAdminPassword(ADMIN_PASSWORD, `${passwordHash}x`)).resolves.toBe(false);
+    const legacyHash = await hashAdminPassword(ADMIN_PASSWORD);
+    expect(legacyHash).toMatch(/^pbkdf2-sha256\$310000\$/u);
+    await expect(verifyAdminPassword(ADMIN_PASSWORD, legacyHash)).resolves.toBe(true);
+    await expect(verifyAdminPassword("senha-incorreta", legacyHash)).resolves.toBe(false);
+  });
+
+  it("verifica HMAC com segredo do servidor e rejeita senha, hash ou segredo alterados", async () => {
+    expect(passwordHash).toMatch(/^hmac-sha256\$/u);
+    await expect(
+      verifyAdminPassword(ADMIN_PASSWORD, passwordHash, SESSION_SECRET),
+    ).resolves.toBe(true);
+    await expect(
+      verifyAdminPassword("senha-incorreta", passwordHash, SESSION_SECRET),
+    ).resolves.toBe(false);
+    await expect(
+      verifyAdminPassword(ADMIN_PASSWORD, `${passwordHash}x`, SESSION_SECRET),
+    ).resolves.toBe(false);
+    await expect(
+      verifyAdminPassword(ADMIN_PASSWORD, passwordHash, `${SESSION_SECRET}-alterado`),
+    ).resolves.toBe(false);
   });
 
   it("assina ator e expiração e rejeita token adulterado ou expirado", async () => {

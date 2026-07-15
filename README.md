@@ -91,7 +91,7 @@ Copy-Item .env.example .env.local
 | --- | --- | --- |
 | `API_BASE_URL` | sim | origem HTTPS do backend, sem caminho ou barra adicional |
 | `API_ADMIN_TOKEN` | sim | mesmo segredo configurado como `API_SECRET` no backend |
-| `ADMIN_PASSWORD_HASH` | sim | hash PBKDF2 da senha do painel |
+| `ADMIN_PASSWORD_HASH` | sim | HMAC da senha do painel, vinculada ao `SESSION_SECRET` |
 | `ADMIN_DISCORD_ID` | sim | ID do Discord usado internamente nos registros de auditoria |
 | `SESSION_SECRET` | sim | assinatura de sessão; mínimo de 32 caracteres aleatórios |
 | `PUBLIC_SITE_URL` | produção | origem canônica final do site |
@@ -107,7 +107,7 @@ Gere o hash da senha sem mostrá-la no terminal:
 npm run admin:hash
 ```
 
-O comando solicita e confirma a senha de forma mascarada. Copie apenas o resultado `ADMIN_PASSWORD_HASH` para o ambiente do Worker. Para o segredo de sessão, gere um valor aleatório com um gerenciador de senhas ou ferramenta criptográfica local.
+O comando solicita e confirma a senha e também solicita o `SESSION_SECRET`, sempre de forma mascarada. Copie apenas o resultado `ADMIN_PASSWORD_HASH` para o ambiente do Worker. Alterar o `SESSION_SECRET` exige gerar novamente esse hash.
 
 ## Instalação e execução local
 

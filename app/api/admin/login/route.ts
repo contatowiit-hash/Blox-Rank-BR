@@ -41,7 +41,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    if (!(await verifyAdminPassword(input.password, config.passwordHash))) {
+    if (!(await verifyAdminPassword(input.password, config.passwordHash, config.sessionSecret))) {
       recordLoginFailure(keys);
       return adminJson(
         { error: { code: "INVALID_CREDENTIALS", message: "Dados de acesso inválidos." } },

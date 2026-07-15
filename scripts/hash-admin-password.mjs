@@ -1,7 +1,6 @@
-import { pbkdf2Sync, randomBytes } from "node:crypto";
+import { createHmac } from "node:crypto";
 
-const ITERATIONS = 310_000;
-const MIN_PASSWORD_LENGTH = 12;
+const MIN_PASSWORD_LENGTH = 10;
 
 async function readHidden(label) {
   if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") {
@@ -56,10 +55,13 @@ try {
   if (password.length < MIN_PASSWORD_LENGTH) {
     throw new Error(`Use uma senha com pelo menos ${MIN_PASSWORD_LENGTH} caracteres.`);
   }
-  const salt = randomBytes(16);
-  const hash = pbkdf2Sync(password, salt, ITERATIONS, 32, "sha256");
+  const sessionSecret = await readHidden("Digite o SESSION_SECRET: ");
+  if (sessionSecret.length < 32) {
+    throw new Error("O SESSION_SECRET precisa ter pelo menos 32 caracteres.");
+  }
+  const hash = createHmac("sha256", sessionSecret).update(password, "utf8").digest("base64url");
   process.stdout.write(
-    `ADMIN_PASSWORD_HASH=pbkdf2-sha256$${ITERATIONS}$${salt.toString("base64url")}$${hash.toString("base64url")}\n`,
+    `ADMIN_PASSWORD_HASH=hmac-sha256$${hash}\n`,
   );
 } catch (error) {
   const message = error instanceof Error ? error.message : "Não foi possível gerar o hash.";

@@ -3,6 +3,7 @@ import "server-only";
 const PASSWORD_ALGORITHM = "PBKDF2";
 const PASSWORD_HASH_NAME = "SHA-256";
 const PASSWORD_HASH_PREFIX = "pbkdf2-sha256";
+const PASSWORD_HMAC_PREFIX = "hmac-sha256";
 const PASSWORD_HASH_BYTES = 32;
 const PASSWORD_SALT_BYTES = 16;
 const MINIMUM_PASSWORD_ITERATIONS = 310_000;
@@ -83,13 +84,27 @@ async function derivePasswordHash(
   return new Uint8Array(derived);
 }
 
-interface ParsedPasswordHash {
+interface ParsedPbkdf2PasswordHash {
+  kind: "pbkdf2";
   iterations: number;
   salt: Uint8Array;
   hash: Uint8Array;
 }
 
+interface ParsedHmacPasswordHash {
+  kind: "hmac";
+  hash: Uint8Array;
+}
+
+type ParsedPasswordHash = ParsedPbkdf2PasswordHash | ParsedHmacPasswordHash;
+
 function parsePasswordHash(encodedHash: string): ParsedPasswordHash | null {
+  const [hmacAlgorithm, hmacValue, hmacExtra] = encodedHash.split("$");
+  if (hmacAlgorithm === PASSWORD_HMAC_PREFIX && hmacValue !== undefined && hmacExtra === undefined) {
+    const hash = base64UrlToBytes(hmacValue);
+    return hash !== null && hash.length === PASSWORD_HASH_BYTES ? { kind: "hmac", hash } : null;
+  }
+
   const [algorithm, iterationsValue, saltValue, hashValue, extra] = encodedHash.split("$");
   if (
     algorithm !== PASSWORD_HASH_PREFIX ||
@@ -117,7 +132,7 @@ function parsePasswordHash(encodedHash: string): ParsedPasswordHash | null {
   ) {
     return null;
   }
-  return { iterations, salt, hash };
+  return { kind: "pbkdf2", iterations, salt, hash };
 }
 
 export function isSupportedAdminPasswordHash(encodedHash: string): boolean {
@@ -151,6 +166,7 @@ export async function hashAdminPassword(
 export async function verifyAdminPassword(
   password: string,
   encodedHash: string,
+  secret?: string,
 ): Promise<boolean> {
   if (password.length < 1 || password.length > 256) {
     return false;
@@ -159,8 +175,38 @@ export async function verifyAdminPassword(
   if (parsed === null) {
     return false;
   }
+  if (parsed.kind === "hmac") {
+    if (secret === undefined || secret.length < 32) {
+      return false;
+    }
+    const candidate = new Uint8Array(
+      await crypto.subtle.sign(
+        "HMAC",
+        await importSessionKey(secret),
+        new TextEncoder().encode(password),
+      ),
+    );
+    return constantTimeEqual(candidate, parsed.hash);
+  }
   const candidate = await derivePasswordHash(password, parsed.salt, parsed.iterations);
   return constantTimeEqual(candidate, parsed.hash);
+}
+
+export async function hashAdminPasswordWithSecret(
+  password: string,
+  secret: string,
+): Promise<string> {
+  if (password.length < 10 || password.length > 256 || secret.length < 32) {
+    throw new RangeError("A senha e o segredo administrativo não são seguros.");
+  }
+  const hash = new Uint8Array(
+    await crypto.subtle.sign(
+      "HMAC",
+      await importSessionKey(secret),
+      new TextEncoder().encode(password),
+    ),
+  );
+  return `${PASSWORD_HMAC_PREFIX}$${bytesToBase64Url(hash)}`;
 }
 
 async function importSessionKey(secret: string): Promise<CryptoKey> {
