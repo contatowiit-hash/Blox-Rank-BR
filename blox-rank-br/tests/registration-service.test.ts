@@ -208,6 +208,7 @@ describe("RegistrationService.updateStatus", () => {
     const updateStatus = vi.fn();
     const registrations = {
       getById: vi.fn(async () => approvedRegistration),
+      getByIdForUpdate: vi.fn(async () => approvedRegistration),
       updateStatus,
     } as unknown as RegistrationRepository;
     const auditLog: AuditLog = {
@@ -225,7 +226,17 @@ describe("RegistrationService.updateStatus", () => {
     const service = new RegistrationService({
       pool,
       registrations,
-      tournaments: {} as TournamentRepository,
+      tournaments: {
+        getByIdForUpdate: vi.fn(async () => ({
+          id: TOURNAMENT_ID,
+          name: "Blox Rank BR",
+          status: "active",
+          maxPlayers: 16,
+          createdAt: FIXED_DATE,
+          updatedAt: FIXED_DATE,
+        })),
+        getCurrent: vi.fn(async () => ({ id: TOURNAMENT_ID })),
+      } as unknown as TournamentRepository,
       auditLogs: { create: createAudit } as unknown as AuditLogRepository,
       outbox: { enqueue } as unknown as OutboxRepository,
       registrationsChannelId: "323456789012345678",
@@ -252,14 +263,54 @@ describe("RegistrationService.updateStatus", () => {
     expect(query.mock.calls.map(([sql]) => sql)).toEqual(["BEGIN", "COMMIT"]);
     expect(release).toHaveBeenCalledWith(false);
   });
+
+  it("bloqueia um botão antigo que aponta para outra edição", async () => {
+    const query = vi.fn(async (_sql: string) => ({ rows: [], rowCount: 0 }));
+    const release = vi.fn();
+    const client = { query, release } as unknown as PoolClient;
+    const updateStatus = vi.fn();
+    const service = new RegistrationService({
+      pool: { connect: vi.fn(async () => client) } as unknown as Pool,
+      registrations: {
+        getById: vi.fn(async () => pendingRegistration),
+        getByIdForUpdate: vi.fn(),
+        updateStatus,
+      } as unknown as RegistrationRepository,
+      tournaments: {
+        getByIdForUpdate: vi.fn(async () => ({
+          id: TOURNAMENT_ID,
+          status: "finished",
+        })),
+        getCurrent: vi.fn(async () => ({
+          id: "44444444-4444-4444-8444-444444444444",
+          status: "registrations_open",
+        })),
+      } as unknown as TournamentRepository,
+      auditLogs: { create: vi.fn() } as unknown as AuditLogRepository,
+      outbox: { enqueue: vi.fn() } as unknown as OutboxRepository,
+      registrationsChannelId: "323456789012345678",
+      logsChannelId: "423456789012345678",
+      participantRoleId: "523456789012345678",
+    });
+
+    await expect(
+      service.updateStatus(REGISTRATION_ID, { status: "rejected", rejection_reason: "Fora do prazo" }, ACTOR_ID),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: "Esta inscrição não pertence ao torneio atual.",
+    });
+    expect(updateStatus).not.toHaveBeenCalled();
+    expect(query.mock.calls.map(([sql]) => sql)).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(release).toHaveBeenCalledWith(false);
+  });
 });
 
 describe("RegistrationService.getPendingByDiscordUserId", () => {
   function serviceFor(registration: Registration | null) {
-    const getByDiscordUserId = vi.fn(async () => registration);
+    const getPendingByDiscordUserId = vi.fn(async () => registration);
     const service = new RegistrationService({
       pool: {} as Pool,
-      registrations: { getByDiscordUserId } as unknown as RegistrationRepository,
+      registrations: { getPendingByDiscordUserId } as unknown as RegistrationRepository,
       tournaments: { getCurrent: vi.fn(async () => ({ id: TOURNAMENT_ID })) } as unknown as TournamentRepository,
       auditLogs: {} as AuditLogRepository,
       outbox: {} as OutboxRepository,
@@ -267,20 +318,43 @@ describe("RegistrationService.getPendingByDiscordUserId", () => {
       logsChannelId: "423456789012345678",
       participantRoleId: "523456789012345678",
     });
-    return { service, getByDiscordUserId };
+    return { service, getPendingByDiscordUserId };
   }
 
   it("encontra a inscrição pendente do usuário no torneio atual", async () => {
     const harness = serviceFor(pendingRegistration);
     await expect(harness.service.getPendingByDiscordUserId(DISCORD_ID)).resolves.toBe(pendingRegistration);
-    expect(harness.getByDiscordUserId).toHaveBeenCalledWith(TOURNAMENT_ID, DISCORD_ID);
+    expect(harness.getPendingByDiscordUserId).toHaveBeenCalledWith(TOURNAMENT_ID, DISCORD_ID);
   });
 
-  it("explica quando a inscrição do usuário já foi analisada", async () => {
-    const harness = serviceFor(approvedRegistration);
+  it("explica quando não existe inscrição pendente para o usuário", async () => {
+    const harness = serviceFor(null);
     await expect(harness.service.getPendingByDiscordUserId(DISCORD_ID)).rejects.toMatchObject({
-      code: "CONFLICT",
-      message: "A inscrição deste jogador já foi analisada.",
+      code: "NOT_FOUND",
+      message: "Este jogador não possui inscrição pendente no torneio atual.",
     });
+  });
+});
+
+describe("RegistrationService.searchPending", () => {
+  it("sanitiza a busca, limita a 25 e mantém o escopo do torneio atual", async () => {
+    const searchPending = vi.fn(async () => [pendingRegistration]);
+    const service = new RegistrationService({
+      pool: {} as Pool,
+      registrations: { searchPending } as unknown as RegistrationRepository,
+      tournaments: {
+        getCurrent: vi.fn(async () => ({ id: TOURNAMENT_ID, status: "registrations_open" })),
+      } as unknown as TournamentRepository,
+      auditLogs: {} as AuditLogRepository,
+      outbox: {} as OutboxRepository,
+      registrationsChannelId: "323456789012345678",
+      logsChannelId: "423456789012345678",
+      participantRoleId: "523456789012345678",
+    });
+
+    await expect(service.searchPending("  Jogador\u0000   BR  ")).resolves.toEqual([
+      pendingRegistration,
+    ]);
+    expect(searchPending).toHaveBeenCalledWith(TOURNAMENT_ID, "Jogador BR", 25);
   });
 });

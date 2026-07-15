@@ -8,6 +8,7 @@ import {
 } from "../repositories/index.js";
 import type { Registration } from "../types/domain.js";
 import { ConflictError, NotFoundError, isPostgresError } from "../utils/errors.js";
+import { sanitizeText } from "../utils/sanitize.js";
 import type {
   CreateRegistrationInput,
   RegistrationListQuery,
@@ -189,11 +190,33 @@ export class RegistrationService {
   }
 
   public async getPendingByDiscordUserId(discordUserId: string): Promise<Registration> {
-    const registration = await this.getCurrentByDiscordUserId(discordUserId);
-    if (registration.status !== "pending") {
-      throw new ConflictError("A inscrição deste jogador já foi analisada.");
+    const tournament = await this.options.tournaments.getCurrent();
+    if (tournament === null) {
+      throw new NotFoundError("Nenhum torneio está disponível no momento.");
+    }
+    const registration = await this.options.registrations.getPendingByDiscordUserId(
+      tournament.id,
+      discordUserId,
+    );
+    if (registration === null) {
+      throw new NotFoundError("Este jogador não possui inscrição pendente no torneio atual.");
     }
     return registration;
+  }
+
+  public async searchPending(search: string): Promise<Registration[]> {
+    const tournament = await this.options.tournaments.getCurrent();
+    if (
+      tournament === null ||
+      !["registrations_open", "registrations_closed"].includes(tournament.status)
+    ) {
+      return [];
+    }
+    return this.options.registrations.searchPending(
+      tournament.id,
+      sanitizeText(search).slice(0, 100),
+      25,
+    );
   }
 
   public async updateStatus(
@@ -202,11 +225,33 @@ export class RegistrationService {
     actorDiscordId: string,
   ): Promise<Registration> {
     return withTransaction(this.options.pool, async (client) => {
-      const target = await this.options.registrations.getById(id, client);
+      const initialTarget = await this.options.registrations.getById(id, client);
+      if (initialTarget === null) {
+        throw new NotFoundError("Inscrição não encontrada.");
+      }
+      const lockedTournament = await this.options.tournaments.getByIdForUpdate(
+        initialTarget.tournamentId,
+        client,
+      );
+      const currentTournament = await this.options.tournaments.getCurrent(client);
+      if (
+        lockedTournament === null ||
+        currentTournament === null ||
+        currentTournament.id !== initialTarget.tournamentId
+      ) {
+        throw new ConflictError("Esta inscrição não pertence ao torneio atual.");
+      }
+      const target = await this.options.registrations.getByIdForUpdate(id, client);
       if (target === null) {
         throw new NotFoundError("Inscrição não encontrada.");
       }
+      if (target.tournamentId !== lockedTournament.id) {
+        throw new ConflictError("Esta inscrição não pertence ao torneio atual.");
+      }
       if (input.status === "approved" && target.status === "approved") {
+        if (!["registrations_open", "registrations_closed", "active"].includes(lockedTournament.status)) {
+          throw new ConflictError("Este torneio não aceita nova tentativa de entrega do cargo.");
+        }
         const auditLog = await this.options.auditLogs.create(
           {
             action: "registration.participant_role_retry_requested",
@@ -248,17 +293,10 @@ export class RegistrationService {
       if (target.status !== "pending") {
         throw new ConflictError("Esta inscrição já foi analisada e não pode ser alterada.");
       }
+      if (!["registrations_open", "registrations_closed"].includes(lockedTournament.status)) {
+        throw new ConflictError("O torneio atual não aceita análise de inscrições.");
+      }
       if (input.status === "approved") {
-        const lockedTournament = await this.options.tournaments.getByIdForUpdate(
-          target.tournamentId,
-          client,
-        );
-        if (
-          lockedTournament === null ||
-          !["registrations_open", "registrations_closed"].includes(lockedTournament.status)
-        ) {
-          throw new ConflictError("Este torneio não aceita novas aprovações.");
-        }
         if (lockedTournament.maxPlayers !== TOURNAMENT_SIZE) {
           throw new ConflictError("O torneio precisa estar configurado para 16 participantes.");
         }

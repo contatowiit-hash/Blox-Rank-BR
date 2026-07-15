@@ -35,19 +35,22 @@ function baseInteraction() {
 describe("interações de UX do Discord", () => {
   it("aprova pela menção e resolve o ID do Discord somente no servidor", async () => {
     const selectedDiscordId = "444444444444444444";
-    const getCurrentByDiscordUserId = vi.fn(async () => ({ id: REGISTRATION_ID }));
+    const getPendingByDiscordUserId = vi.fn(async () => ({ id: REGISTRATION_ID }));
     const updateStatus = vi.fn(async () => ({ robloxUsername: "JogadorBR" }));
     const deferReply = vi.fn();
     const editReply = vi.fn();
     const interaction = {
       ...baseInteraction(), deferred: true, replied: false,
       isChatInputCommand: () => true, commandName: "aprovar",
-      options: { getUser: () => ({ id: selectedDiscordId }) }, deferReply, editReply,
+      options: {
+        getUser: () => ({ id: selectedDiscordId }),
+        getString: () => null,
+      }, deferReply, editReply,
     };
     await createDiscordInteractionHandler(options({ services: { registrations: {
-      getCurrentByDiscordUserId, updateStatus,
+      getPendingByDiscordUserId, updateStatus,
     } } } as never))(interaction as never);
-    expect(getCurrentByDiscordUserId).toHaveBeenCalledWith(selectedDiscordId);
+    expect(getPendingByDiscordUserId).toHaveBeenCalledWith(selectedDiscordId);
     expect(updateStatus).toHaveBeenCalledWith(REGISTRATION_ID, { status: "approved" }, USER_ID);
     expect(editReply).toHaveBeenCalledOnce();
   });
@@ -84,7 +87,12 @@ describe("interações de UX do Discord", () => {
     expect(createByStaff).not.toHaveBeenCalled();
   });
 
-  it("grava no backend a inscrição enviada pelo formulário da equipe", async () => {
+  it.each([
+    ["30m", 30_000_000],
+    ["2,5m", 2_500_000],
+    ["2.5m", 2_500_000],
+    ["5000000", 5_000_000],
+  ])("grava Bounty/Honor %s como %i no backend", async (bountyInput, expectedBounty) => {
     const selectedDiscordId = "444444444444444444";
     const createByStaff = vi.fn(async () => ({ robloxUsername: "Jogador_BR" }));
     const fetchMember = vi.fn(async () => ({
@@ -99,7 +107,7 @@ describe("interações de UX do Discord", () => {
     const values: Record<string, string> = {
       roblox_username: "  Jogador_BR  ",
       level: "2550",
-      bounty_honor: "30000000",
+      bounty_honor: bountyInput,
       main_fruit: "  Dragon  ",
     };
     const interaction = {
@@ -124,7 +132,7 @@ describe("interações de UX do Discord", () => {
       discord_user_id: selectedDiscordId,
       discord_username: "jogador.discord",
       level: 2550,
-      bounty_honor: 30_000_000,
+      bounty_honor: expectedBounty,
       faction: "pirate",
       platform: "pc",
       main_fruit: "Dragon",
@@ -264,6 +272,71 @@ describe("interações de UX do Discord", () => {
     expect(choices).toHaveLength(1);
     expect(choices[0]).toMatchObject({ value: REGISTRATION_ID });
     expect(choices[0]?.name).toContain("Alpha x Beta");
+  });
+
+  it("busca inscrições pendentes por nick sem expor Discord ID", async () => {
+    const respond = vi.fn();
+    const searchPending = vi.fn(async () => Array.from({ length: 30 }, (_, index) => ({
+      id: `11111111-1111-4111-8111-${String(index).padStart(12, "0")}`,
+      tournamentId: TOURNAMENT_ID,
+      robloxUsername: `Alpha${index}`,
+      discordUserId: "444444444444444444",
+      discordUsername: `discord${index}`,
+      level: 2_550,
+      bountyHonor: 5_000_000,
+      faction: "pirate" as const,
+      platform: "pc" as const,
+      mainFruit: "Dragon",
+      status: "pending" as const,
+      rejectionReason: null,
+      approvedByDiscordId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })));
+    const interaction = {
+      ...baseInteraction(),
+      isAutocomplete: () => true,
+      commandName: "aprovar",
+      options: { getFocused: () => ({ name: "inscricao", value: "alpha" }) },
+      respond,
+    };
+
+    await createDiscordInteractionHandler(options({ services: {
+      registrations: { searchPending },
+    } } as never))(interaction as never);
+
+    expect(searchPending).toHaveBeenCalledWith("alpha");
+    const choices = respond.mock.calls[0]![0] as Array<{ name: string; value: string }>;
+    expect(choices).toHaveLength(25);
+    expect(choices[0]?.name).toContain("Alpha0 — discord0 — 5M Bounty/Honor");
+    expect(choices[0]?.name).not.toContain("444444444444444444");
+    expect(choices[0]?.value).toBe("11111111-1111-4111-8111-000000000000");
+  });
+
+  it("aprova pelo UUID interno retornado pelo autocomplete", async () => {
+    const updateStatus = vi.fn(async () => ({ robloxUsername: "JogadorBR" }));
+    const deferReply = vi.fn();
+    const editReply = vi.fn();
+    const interaction = {
+      ...baseInteraction(),
+      deferred: true,
+      replied: false,
+      isChatInputCommand: () => true,
+      commandName: "aprovar",
+      options: {
+        getUser: () => null,
+        getString: (name: string) => name === "inscricao" ? REGISTRATION_ID : null,
+      },
+      deferReply,
+      editReply,
+    };
+
+    await createDiscordInteractionHandler(options({ services: {
+      registrations: { updateStatus },
+    } } as never))(interaction as never);
+
+    expect(updateStatus).toHaveBeenCalledWith(REGISTRATION_ID, { status: "approved" }, USER_ID);
+    expect(editReply).toHaveBeenCalledOnce();
   });
 
   it("abre modal de recusa para staff e não executa alteração antes do envio", async () => {

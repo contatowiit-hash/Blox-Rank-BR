@@ -45,14 +45,20 @@ export const commandDefinitions = Object.freeze([
     .setName(DISCORD_COMMAND_NAMES.approve)
     .setDescription("Aprova um jogador e entrega o cargo de participante.")
     .addUserOption((option) => option.setName("jogador")
-      .setDescription("Marque o jogador que será aprovado").setRequired(true)),
+      .setDescription("Marque o jogador que será aprovado"))
+    .addStringOption((option) => option.setName("inscricao")
+      .setDescription("Ou pesquise pelo nick do Roblox ou nome no Discord")
+      .setAutocomplete(true)),
   new SlashCommandBuilder()
     .setName(DISCORD_COMMAND_NAMES.reject)
     .setDescription("Recusa a inscrição de um jogador.")
-    .addUserOption((option) => option.setName("jogador")
-      .setDescription("Marque o jogador que será recusado").setRequired(true))
     .addStringOption((option) => option.setName("motivo").setDescription("Explique o motivo da recusa")
-      .setMinLength(REJECTION_REASON_MIN_LENGTH).setMaxLength(REJECTION_REASON_MAX_LENGTH).setRequired(true)),
+      .setMinLength(REJECTION_REASON_MIN_LENGTH).setMaxLength(REJECTION_REASON_MAX_LENGTH).setRequired(true))
+    .addUserOption((option) => option.setName("jogador")
+      .setDescription("Marque o jogador que será recusado"))
+    .addStringOption((option) => option.setName("inscricao")
+      .setDescription("Ou pesquise pelo nick do Roblox ou nome no Discord")
+      .setAutocomplete(true)),
   new SlashCommandBuilder()
     .setName(DISCORD_COMMAND_NAMES.result)
     .setDescription("Registra o placar de uma partida.")

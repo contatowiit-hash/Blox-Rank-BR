@@ -258,8 +258,8 @@ Assim, os maiores seeds ficam separados e os seeds 1 e 2 só podem se encontrar 
 ## Comandos do Discord
 
 - `/inscricoes` — lista até 100 pendentes em mensagens privadas; somente staff.
-- `/inscrever jogador:@usuário faccao:<opção> plataforma:<opção>` — abre um formulário para nick Roblox, level, Bounty/Honor e fruta. Ao enviar, o backend grava uma inscrição `pending` no PostgreSQL, registra o responsável em `audit_logs` e publica o card de análise pelo outbox; somente staff.
-- `/aprovar jogador:@usuário` e `/recusar jogador:@usuário motivo:<texto>` — a equipe apenas marca o membro; o bot encontra a inscrição do torneio atual internamente. Os botões da nova inscrição executam as mesmas ações e a recusa usa modal.
+- `/inscrever jogador:@usuário faccao:<opção> plataforma:<opção>` — abre um formulário para nick Roblox, level, Bounty/Honor e fruta. O Bounty/Honor aceita o número completo ou milhões abreviados, como `5m`, `20m` e `2,5m`. Ao enviar, o backend grava uma inscrição `pending` no PostgreSQL, registra o responsável em `audit_logs` e publica o card de análise pelo outbox; somente staff.
+- `/aprovar` e `/recusar` — a equipe pode marcar `jogador:@usuário` ou pesquisar `inscricao` pelo nick Roblox/nome Discord; o UUID fica somente como valor interno do autocomplete. Apenas inscrições pendentes do torneio atual aparecem e a decisão revalida o estado no banco. Os botões da nova inscrição executam as mesmas regras e a recusa por botão usa modal.
 - `/resultado` — oferece somente partidas pendentes/jogáveis no autocomplete, registra o placar e avança o vencedor; somente staff; resposta privada.
 - `/torneio` — resume status, limite e totais de inscrições por situação.
 - `/abrir-inscricoes`, `/fechar-inscricoes` e `/gerar-chaveamento` — atuam sempre no torneio atual; somente staff.

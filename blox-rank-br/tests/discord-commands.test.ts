@@ -5,7 +5,7 @@ import { createNewRegistrationEmbed, createPendingRegistrationEmbeds, createRegi
 import { hasUnsafeParticipantPermissions } from "../src/utils/discord-permissions.js";
 
 describe("comandos e embeds do Discord", () => {
-  it("serializa comandos simples com seleção de jogador por menção", () => {
+  it("serializa comandos com menção e busca legível de inscrições", () => {
     const commands = commandDefinitions.map((definition) => definition.toJSON());
     expect(commands.map((command) => command.name)).toEqual([
       DISCORD_COMMAND_NAMES.registrations,
@@ -43,10 +43,14 @@ describe("comandos e embeds do Discord", () => {
         ],
       },
     ]);
-    expect(approve?.options).toMatchObject([{ name: "jogador", required: true, type: 6 }]);
+    expect(approve?.options).toMatchObject([
+      { name: "jogador", required: false, type: 6 },
+      { name: "inscricao", required: false, autocomplete: true, type: 3 },
+    ]);
     expect(reject?.options).toMatchObject([
-      { name: "jogador", required: true, type: 6 },
       { name: "motivo", required: true, min_length: 3, max_length: 500 },
+      { name: "jogador", required: false, type: 6 },
+      { name: "inscricao", required: false, autocomplete: true, type: 3 },
     ]);
     expect(result?.options).toMatchObject([
       { name: "partida", required: true, autocomplete: true },

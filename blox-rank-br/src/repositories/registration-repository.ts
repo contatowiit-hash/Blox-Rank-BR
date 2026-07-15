@@ -63,6 +63,10 @@ function safePagination(options: RegistrationListOptions): { limit: number; offs
   return { limit, offset };
 }
 
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/gu, "\\$&");
+}
+
 export class RegistrationRepository {
   public constructor(private readonly defaultQueryable: Queryable) {}
 
@@ -106,17 +110,91 @@ export class RegistrationRepository {
     return row === undefined ? null : mapRegistration(row);
   }
 
+  public async getByIdForUpdate(
+    id: string,
+    queryable?: Queryable,
+  ): Promise<Registration | null> {
+    const result = await this.db(queryable).query<RegistrationRow>(
+      'SELECT * FROM registrations WHERE id = $1 FOR UPDATE',
+      [id],
+    );
+    const row = result.rows[0];
+    return row === undefined ? null : mapRegistration(row);
+  }
+
   public async getByDiscordUserId(
     tournamentId: string,
     discordUserId: string,
     queryable?: Queryable,
   ): Promise<Registration | null> {
     const result = await this.db(queryable).query<RegistrationRow>(
-      'SELECT * FROM registrations WHERE tournament_id = $1 AND discord_user_id = $2',
+      `SELECT *
+       FROM registrations
+       WHERE tournament_id = $1 AND discord_user_id = $2
+       ORDER BY CASE status WHEN 'pending' THEN 1 WHEN 'approved' THEN 2 ELSE 3 END,
+         created_at DESC, id DESC
+       LIMIT 1`,
       [tournamentId, discordUserId],
     );
     const row = result.rows[0];
     return row === undefined ? null : mapRegistration(row);
+  }
+
+  public async getPendingByDiscordUserId(
+    tournamentId: string,
+    discordUserId: string,
+    queryable?: Queryable,
+  ): Promise<Registration | null> {
+    const result = await this.db(queryable).query<RegistrationRow>(
+      `SELECT *
+       FROM registrations
+       WHERE tournament_id = $1 AND discord_user_id = $2 AND status = 'pending'
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [tournamentId, discordUserId],
+    );
+    const row = result.rows[0];
+    return row === undefined ? null : mapRegistration(row);
+  }
+
+  public async searchPending(
+    tournamentId: string,
+    search: string,
+    limit = 25,
+    queryable?: Queryable,
+  ): Promise<Registration[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 25) {
+      throw new RangeError('limit deve ser um inteiro entre 1 e 25.');
+    }
+    if (search.length > 100) {
+      throw new RangeError('search deve ter no máximo 100 caracteres.');
+    }
+    const literalSearch = escapeLikePattern(search);
+    const prefixSearch = `${literalSearch}%`;
+    const containsSearch = `%${literalSearch}%`;
+    const result = await this.db(queryable).query<RegistrationRow>(
+      `SELECT *
+       FROM registrations
+       WHERE tournament_id = $1
+         AND status = 'pending'
+         AND (
+           $2 = ''
+           OR roblox_username ILIKE $4 ESCAPE '\\'
+           OR discord_username ILIKE $4 ESCAPE '\\'
+         )
+       ORDER BY CASE
+         WHEN LOWER(roblox_username) = LOWER($2) THEN 1
+         WHEN LOWER(discord_username) = LOWER($2) THEN 2
+         WHEN roblox_username ILIKE $3 ESCAPE '\\' THEN 3
+         WHEN discord_username ILIKE $3 ESCAPE '\\' THEN 4
+         ELSE 5
+       END,
+       created_at ASC,
+       id ASC
+       LIMIT $5`,
+      [tournamentId, search, prefixSearch, containsSearch, limit],
+    );
+    return result.rows.map(mapRegistration);
   }
 
   public async getByRobloxUsername(

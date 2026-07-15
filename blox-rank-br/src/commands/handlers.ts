@@ -15,6 +15,7 @@ import {
 import { ZodError } from "zod";
 import type { ApplicationContext } from "../application-context.js";
 import type { AppEnv } from "../config/env.js";
+import type { Registration } from "../types/domain.js";
 import {
   AppError,
   ConflictError,
@@ -64,6 +65,7 @@ const REGISTRATION_CREATE_MODAL_PATTERN = new RegExp(
   "iu",
 );
 const DECIMAL_INTEGER_PATTERN = /^\d+$/u;
+const MILLIONS_VALUE_PATTERN = /^(\d+)(?:[.,](\d{1,6}))?m$/iu;
 const DISCORD_INITIAL_RESPONSE_TIMEOUT_MS = 1_500;
 const PUBLIC_COMMANDS = new Set<string>([
   DISCORD_COMMAND_NAMES.tournament, DISCORD_COMMAND_NAMES.participants,
@@ -95,6 +97,43 @@ function parseDecimalInteger(value: string, label: string): number {
     throw new ValidationError(`${label} deve conter apenas números inteiros.`);
   }
   return Number(normalized);
+}
+
+function parseBountyHonor(value: string): number {
+  const normalized = sanitizeText(value).replace(/\s+/gu, "");
+  if (DECIMAL_INTEGER_PATTERN.test(normalized)) {
+    return Number(normalized);
+  }
+  const millions = MILLIONS_VALUE_PATTERN.exec(normalized);
+  if (millions === null) {
+    throw new ValidationError(
+      "O Bounty/Honor deve ser um número completo ou usar m, como 30000000 ou 30m.",
+    );
+  }
+  const wholeMillions = Number(millions[1]);
+  const fractionalMillions = Number((millions[2] ?? "").padEnd(6, "0"));
+  const result = wholeMillions * 1_000_000 + fractionalMillions;
+  if (!Number.isSafeInteger(result)) {
+    throw new ValidationError("O Bounty/Honor informado é muito alto.");
+  }
+  return result;
+}
+
+function formatBountyHonor(value: number): string {
+  if (value >= 1_000_000) {
+    return `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value / 1_000_000)}M`;
+  }
+  return new Intl.NumberFormat("pt-BR").format(value);
+}
+
+function pendingRegistrationChoice(registration: Registration): { name: string; value: string } {
+  return {
+    name: truncateText(
+      `${sanitizeText(registration.robloxUsername)} — ${sanitizeText(registration.discordUsername)} — ${formatBountyHonor(registration.bountyHonor)} Bounty/Honor`,
+      100,
+    ),
+    value: registration.id,
+  };
 }
 
 async function beforeDiscordResponseDeadline<T>(operation: Promise<T>): Promise<T> {
@@ -136,6 +175,19 @@ async function handleAutocomplete(interaction: AutocompleteInteraction, options:
     await interaction.respond([]); return;
   }
   const focused = interaction.options.getFocused(true);
+  const registrationAutocompleteCommand =
+    interaction.commandName === DISCORD_COMMAND_NAMES.approve ||
+    interaction.commandName === DISCORD_COMMAND_NAMES.reject;
+  if (
+    registrationAutocompleteCommand &&
+    focused.name === "inscricao"
+  ) {
+    const registrations = await options.context.services.registrations.searchPending(
+      String(focused.value),
+    );
+    await interaction.respond(registrations.slice(0, 25).map(pendingRegistrationChoice));
+    return;
+  }
   if (interaction.commandName === DISCORD_COMMAND_NAMES.result && focused.name === "partida") {
     const query = sanitizeText(String(focused.value)).toLocaleLowerCase("pt-BR");
     const bracket = await options.context.services.tournaments.getCurrentBracket();
@@ -156,6 +208,24 @@ async function approve(registrationId: string, actorId: string, context: Applica
 async function reject(registrationId: string, reason: string, actorId: string, context: ApplicationContext) {
   return context.services.registrations.updateStatus(registrationId,
     updateRegistrationStatusSchema.parse({ status: "rejected", rejection_reason: reason }), actorId);
+}
+
+async function resolvePendingRegistrationId(
+  interaction: ChatInputCommandInteraction,
+  context: ApplicationContext,
+): Promise<string> {
+  const selectedUser = interaction.options.getUser("jogador");
+  const selectedRegistration = interaction.options.getString("inscricao");
+  if (selectedUser !== null && selectedRegistration !== null) {
+    throw new ValidationError("Escolha o jogador pela menção ou pela busca, não pelos dois campos.");
+  }
+  if (selectedRegistration !== null) {
+    return uuidSchema.parse(selectedRegistration);
+  }
+  if (selectedUser !== null) {
+    return (await context.services.registrations.getPendingByDiscordUserId(selectedUser.id)).id;
+  }
+  throw new ValidationError("Marque o jogador ou pesquise a inscrição pendente pelo nick.");
 }
 
 async function handleButton(interaction: ButtonInteraction, options: DiscordCommandHandlerOptions): Promise<void> {
@@ -210,10 +280,7 @@ async function handleModal(interaction: ModalSubmitInteraction, options: Discord
       discord_user_id: member.id,
       discord_username: member.user.username,
       level: parseDecimalInteger(interaction.fields.getTextInputValue("level"), "O level"),
-      bounty_honor: parseDecimalInteger(
-        interaction.fields.getTextInputValue("bounty_honor"),
-        "O Bounty/Honor",
-      ),
+      bounty_honor: parseBountyHonor(interaction.fields.getTextInputValue("bounty_honor")),
       faction: createMatch[3],
       platform: createMatch[4],
       main_fruit: interaction.fields.getTextInputValue("main_fruit"),
@@ -276,7 +343,8 @@ async function executeCommand(interaction: ChatInputCommandInteraction, options:
           ),
           new ActionRowBuilder<TextInputBuilder>().addComponents(
             new TextInputBuilder().setCustomId("bounty_honor").setLabel("Bounty ou Honor")
-              .setStyle(TextInputStyle.Short).setMinLength(1).setMaxLength(10).setRequired(true),
+              .setPlaceholder("Ex.: 30000000 ou 30m")
+              .setStyle(TextInputStyle.Short).setMinLength(1).setMaxLength(16).setRequired(true),
           ),
           new ActionRowBuilder<TextInputBuilder>().addComponents(
             new TextInputBuilder().setCustomId("main_fruit").setLabel("Fruta principal")
@@ -287,15 +355,17 @@ async function executeCommand(interaction: ChatInputCommandInteraction, options:
       return;
     }
     case DISCORD_COMMAND_NAMES.approve: {
-      const selectedUser = interaction.options.getUser("jogador", true);
-      const registration = await services.registrations.getCurrentByDiscordUserId(selectedUser.id);
-      const item = await approve(registration.id, interaction.user.id, options.context);
+      const registrationId = await resolvePendingRegistrationId(interaction, options.context);
+      const item = await approve(registrationId, interaction.user.id, options.context);
       await editFeedback(interaction, "Inscrição aprovada", `${item.robloxUsername} foi aprovado. O cargo será entregue automaticamente.`, DISCORD_THEME.purple); return;
     }
     case DISCORD_COMMAND_NAMES.reject: {
-      const selectedUser = interaction.options.getUser("jogador", true);
-      const pending = await services.registrations.getPendingByDiscordUserId(selectedUser.id);
-      const item = await reject(pending.id, interaction.options.getString("motivo", true), interaction.user.id, options.context);
+      const registrationId = await resolvePendingRegistrationId(interaction, options.context);
+      const reason = interaction.options.getString("motivo");
+      if (reason === null) {
+        throw new ValidationError("Informe o motivo da recusa.");
+      }
+      const item = await reject(registrationId, reason, interaction.user.id, options.context);
       await editFeedback(interaction, "Inscrição recusada", `${item.robloxUsername} foi recusado e o motivo foi registrado.`, DISCORD_THEME.purple); return;
     }
     case DISCORD_COMMAND_NAMES.result: {
