@@ -1,6 +1,6 @@
 import "server-only";
+import { pbkdf2 } from "node:crypto";
 
-const PASSWORD_ALGORITHM = "PBKDF2";
 const PASSWORD_HASH_NAME = "SHA-256";
 const PASSWORD_HASH_PREFIX = "pbkdf2-sha256";
 const PASSWORD_HASH_BYTES = 32;
@@ -63,24 +63,22 @@ async function derivePasswordHash(
   salt: Uint8Array,
   iterations: number,
 ): Promise<Uint8Array> {
-  const passwordKey = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(password),
-    PASSWORD_ALGORITHM,
-    false,
-    ["deriveBits"],
-  );
-  const derived = await crypto.subtle.deriveBits(
-    {
-      name: PASSWORD_ALGORITHM,
-      hash: PASSWORD_HASH_NAME,
-      salt: copiedArrayBuffer(salt),
+  return new Promise((resolve, reject) => {
+    pbkdf2(
+      password,
+      salt,
       iterations,
-    },
-    passwordKey,
-    PASSWORD_HASH_BYTES * 8,
-  );
-  return new Uint8Array(derived);
+      PASSWORD_HASH_BYTES,
+      "sha256",
+      (error, derived) => {
+        if (error !== null) {
+          reject(error);
+          return;
+        }
+        resolve(new Uint8Array(copiedArrayBuffer(derived)));
+      },
+    );
+  });
 }
 
 interface ParsedPasswordHash {
