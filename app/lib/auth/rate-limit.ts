@@ -2,7 +2,6 @@ import "server-only";
 
 const WINDOW_MS = 15 * 60_000;
 const MAXIMUM_ENTRIES = 5_000;
-const STORE_NAME = "__bloxRankAdminLoginRateLimit";
 
 interface RateLimitEntry {
   failures: number;
@@ -13,14 +12,10 @@ interface LoginRateLimitStore {
   entries: Map<string, RateLimitEntry>;
 }
 
-type RateLimitGlobal = typeof globalThis & {
-  [STORE_NAME]?: LoginRateLimitStore;
-};
+const loginRateLimitStore: LoginRateLimitStore = { entries: new Map() };
 
 function store(): LoginRateLimitStore {
-  const globalRateLimit = globalThis as RateLimitGlobal;
-  globalRateLimit[STORE_NAME] ??= { entries: new Map() };
-  return globalRateLimit[STORE_NAME];
+  return loginRateLimitStore;
 }
 
 function limitsForKey(key: string): number {

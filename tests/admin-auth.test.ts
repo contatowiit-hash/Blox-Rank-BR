@@ -63,6 +63,9 @@ describe("autenticação administrativa", () => {
     );
 
     expect(login.status).toBe(200);
+    expect(
+      Object.prototype.hasOwnProperty.call(globalThis, "__bloxRankAdminLoginRateLimit"),
+    ).toBe(false);
     const setCookie = login.headers.get("set-cookie") ?? "";
     expect(setCookie).toContain("__Host-blox_rank_admin_session=");
     expect(setCookie).toContain("HttpOnly");
